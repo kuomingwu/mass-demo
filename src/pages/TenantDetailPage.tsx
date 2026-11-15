@@ -1,3 +1,4 @@
+import { portalHasRoute } from '../app/portal';
 import { Badge, Button, Link, MessageBar, MessageBarBody, MessageBarTitle, ProgressBar, Switch, Text, Tooltip, createTableColumn, makeStyles, tokens, type TableColumnDefinition } from '@fluentui/react-components';
 import { DeleteRegular, PersonLockRegular, WalletCreditCardRegular } from '@fluentui/react-icons';
 import { DATA_CLASS_LABELS, PLAN_LABELS, TIER_POLICY_LABELS } from '../server/seed';
@@ -279,7 +280,7 @@ export function TenantDetailPage() {
                       {acctSt.data.tier.contract ? t('customer.tenant.tierContract') : t('customer.tenant.tierCumulative', { amount: formatUsd(acctSt.data.tier.cumulativeSpendUsd) }) + (acctSt.data.tier.next && acctSt.data.tier.toNextUsd !== null ? t('customer.tenant.tierNext', { amount: formatUsd(acctSt.data.tier.toNextUsd), tier: acctSt.data.tier.next.name }) : '')}
                     </span>
                     <span className={s.label}>
-                      <Link href="#/plan">{t('customer.tenant.planLink')}</Link>
+                      {portalHasRoute('/plan') && <Link href="#/plan">{t('customer.tenant.planLink')}</Link>}
                     </span>
                   </>
                 ) : (

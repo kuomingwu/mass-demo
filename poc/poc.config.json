@@ -1,0 +1,33 @@
+{
+  "storageRoot": "D:/maas-poc-storage",
+  "gateway": { "host": "127.0.0.1", "port": 8787 },
+  "runtime": { "kind": "ollama", "baseUrl": "http://127.0.0.1:11434", "modelStore": "D:/ollama/models", "allowPull": false },
+  "node": { "name": "poc-laptop-01", "site": "local-dev", "reserveMiB": 1536, "heartbeatMs": 5000 },
+  "activeProfile": "shared-2",
+  "profiles": {
+    "shared-2": {
+      "description": "Two shared slices on one GPU (VRAM-budget partitioning, compute is time-shared)",
+      "slices": [
+        { "id": "slice-a", "vramMiB": 3840, "model": "gemma3:4b", "numCtx": 4096, "maxInflight": 2, "sharing": "shared" },
+        { "id": "slice-b", "vramMiB": 3584, "model": "llama3.2:latest", "numCtx": 4096, "maxInflight": 2, "sharing": "shared" }
+      ]
+    },
+    "dedicated-1": {
+      "description": "Whole GPU dedicated to one tenant (public-sector TAIDE endpoint)",
+      "slices": [
+        { "id": "slice-d", "vramMiB": 10496, "model": "hf.co/audreyt/Gemma-3-TAIDE-12b-Chat-2602-GGUF:Q4_K_M", "numCtx": 4096, "maxInflight": 1, "sharing": "dedicated", "tenantId": "t-gov" }
+      ]
+    }
+  },
+  "models": {
+    "gemma3:4b": { "publicId": "gemma-3-4b", "origin": "US", "license": "Gemma Terms of Use", "priceInPerM": 0.05, "priceOutPerM": 0.10 },
+    "llama3.2:latest": { "publicId": "llama-3.2-3b", "origin": "US", "license": "Llama 3.2 Community License", "priceInPerM": 0.03, "priceOutPerM": 0.06 },
+    "hf.co/audreyt/Gemma-3-TAIDE-12b-Chat-2602-GGUF:Q4_K_M": { "publicId": "gemma-3-taide-12b", "origin": "TW", "license": "Gemma Terms of Use + TAIDE terms", "priceInPerM": 0.15, "priceOutPerM": 0.45 }
+  },
+  "tenants": [
+    { "id": "t-star", "name": "Star Retail (standard)", "type": "enterprise", "balanceUsd": 5.0, "tpmLimit": 60000, "rpmLimit": 120, "models": "*", "zeroRetention": true },
+    { "id": "t-gov", "name": "Gov Agency (public sector)", "type": "public-sector", "balanceUsd": 5.0, "tpmLimit": 60000, "rpmLimit": 120, "models": ["gemma-3-taide-12b", "gemma-3-4b"], "zeroRetention": true },
+    { "id": "t-broke", "name": "Exhausted credits tenant", "type": "enterprise", "balanceUsd": 0, "tpmLimit": 60000, "rpmLimit": 120, "models": "*", "zeroRetention": true },
+    { "id": "t-tiny", "name": "Tiny rate-limit tenant", "type": "enterprise", "balanceUsd": 1.0, "tpmLimit": 150, "rpmLimit": 120, "models": "*", "zeroRetention": true }
+  ]
+}

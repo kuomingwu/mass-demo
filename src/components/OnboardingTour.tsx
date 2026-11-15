@@ -17,7 +17,7 @@ import { ArrowLeftRegular, ArrowRightRegular, CheckmarkCircleRegular, CursorClic
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { GUIDES, getGuide, type Guide, type GuideStep } from '../data/guides';
+import { getGuide, visibleGuides, type Guide, type GuideStep } from '../data/guides';
 import { useSession } from '../app/SessionContext';
 import { tf, useT } from '../i18n';
 
@@ -100,7 +100,7 @@ function readWelcomeDone(): boolean {
 function persistDone(guideId: string, completed: string[]) {
   try {
     localStorage.setItem(DONE_KEY, JSON.stringify(completed));
-    if (guideId === 'welcome') localStorage.setItem(WELCOME_KEY, 'done');
+    if (guideId === 'welcome' || guideId === 'welcome-customer') localStorage.setItem(WELCOME_KEY, 'done');
   } catch {
     /* ignore */
   }
@@ -176,7 +176,7 @@ export function TourProvider({ children, autoStart = true }: { children: ReactNo
 
   const start = useCallback(
     (guideId = 'welcome', opts?: { persona?: string }) => {
-      const g = getGuide(guideId) ?? GUIDES[0];
+      const g = getGuide(guideId) ?? visibleGuides()[0];
       if (opts?.persona) setPersona(opts.persona);
       setGuide(g);
       setIndex(0);
@@ -190,7 +190,7 @@ export function TourProvider({ children, autoStart = true }: { children: ReactNo
     if (import.meta.env.MODE === 'test') return;
     if (window.innerWidth < 700) return;
     const t = window.setTimeout(() => {
-      setGuide(GUIDES[0]);
+      setGuide(visibleGuides()[0]);
       setIndex(0);
     }, 700);
     return () => window.clearTimeout(t);

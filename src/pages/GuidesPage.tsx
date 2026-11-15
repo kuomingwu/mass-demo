@@ -5,7 +5,7 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ScenarioFlow } from '../components/ScenarioFlow';
 import { useTour } from '../components/OnboardingTour';
-import { GUIDES, getGuide, type Guide, type GuideJourney, type GuideStep } from '../data/guides';
+import { getGuide, visibleGuides, type Guide, type GuideJourney, type GuideStep } from '../data/guides';
 import { getGuideFlow } from '../data/guideFlows';
 import { PERSONAS } from '../server/seed';
 import { useSession } from '../app/SessionContext';
@@ -95,11 +95,12 @@ export function GuidesPage() {
   const { personaId } = useSession();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('guide');
-  const guide = useMemo(() => getGuide(selectedId) ?? GUIDES[0], [selectedId]);
+  const guides = useMemo(() => visibleGuides(), []);
+  const guide = useMemo(() => getGuide(selectedId) ?? guides[0], [selectedId, guides]);
 
   useEffect(() => {
-    if (!selectedId) setParams({ guide: GUIDES[0].id }, { replace: true });
-  }, [selectedId, setParams]);
+    if (!selectedId) setParams({ guide: guides[0].id }, { replace: true });
+  }, [selectedId, setParams, guides]);
 
   const flow = getGuideFlow(guide.id);
   const persona = PERSONAS.find((p) => p.id === guide.recommendedPersona);
@@ -115,8 +116,8 @@ export function GuidesPage() {
     return id ? t(`overview.guides.category.${id}`) : category;
   };
   const catColor = (category: string): CategoryColor => CATEGORY_COLORS[categoryId(category) ?? ''] ?? 'brand';
-  const pageLabel = (g: Guide, i: number, p: { label: string; route: string }) => {
-    const k = `guides.${g.id}.pages.${i}.label`;
+  const pageLabel = (g: Guide, i: number, p: { label: string; route: string; index?: number }) => {
+    const k = `guides.${g.id}.pages.${p.index ?? i}.label`;
     if (t.has(k)) return t(k);
     const navKey = ROUTE_NAV_KEYS[p.route.split('?')[0]];
     return t.locale !== 'zh-TW' && navKey ? t(navKey) : p.label;
@@ -127,7 +128,7 @@ export function GuidesPage() {
       <PageHeader title={t('nav.guides')} subtitle={t('overview.guides.subtitle')} crumbs={[{ label: t('nav.guides') }]} />
       <div className={s.layout}>
         <nav className={s.list} aria-label={t('overview.guides.listAria')}>
-          {JOURNEY_ORDER.map((j) => (
+          {JOURNEY_ORDER.filter((j) => guides.some((g) => g.journey === j)).map((j) => (
             <div key={j} role="group" aria-label={t(`overview.guides.journey.${j}`)} data-tour={`guides-group-${j}`} className={s.list}>
               <div className={s.groupTitle}>
                 {t(`overview.guides.journey.${j}`)}
@@ -135,7 +136,7 @@ export function GuidesPage() {
                   {t(`overview.guides.journeyHint.${j}`)}
                 </Text>
               </div>
-              {GUIDES.filter((g) => g.journey === j).map((g) => {
+              {guides.filter((g) => g.journey === j).map((g) => {
                 const active = g.id === guide.id;
                 const finished = tour.completed.includes(g.id);
                 return (

@@ -423,10 +423,45 @@ const trialRequest: ScenarioFlowDef = {
   ],
 };
 
+const connectOwnGpu: ScenarioFlowDef = {
+  id: 'connect-own-gpu',
+  title: zh('flows.connect-own-gpu.title'),
+  summary: zh('flows.connect-own-gpu.summary'),
+  lanes: [{ id: 'user', label: zh('flows.connect-own-gpu.lane.user') }, LANES.authz, { id: 'cluster', label: zh('flows.connect-own-gpu.lane.cluster') }, LANES.audit],
+  nodes: [
+    { id: 'start', lane: 'user', kind: 'start', label: zh('flows.connect-own-gpu.node.start.label'), route: '/local-gpu' },
+    { id: 'token', lane: 'user', kind: 'action', label: zh('flows.connect-own-gpu.node.token.label'), route: '/clusters', note: zh('flows.connect-own-gpu.node.token.note') },
+    { id: 'install', lane: 'cluster', kind: 'action', label: zh('flows.connect-own-gpu.node.install.label'), note: zh('flows.connect-own-gpu.node.install.note') },
+    { id: 'enroll', lane: 'authz', kind: 'decision', label: zh('flows.connect-own-gpu.node.enroll.label') },
+    { id: 'reject', lane: 'cluster', kind: 'action', label: zh('flows.connect-own-gpu.node.reject.label') },
+    { id: 'identity', lane: 'authz', kind: 'system', label: zh('flows.connect-own-gpu.node.identity.label'), note: zh('flows.connect-own-gpu.node.identity.note') },
+    { id: 'audit-enroll', lane: 'audit', kind: 'audit', label: zh('flows.connect-own-gpu.node.audit-enroll.label'), route: '/audit' },
+    { id: 'reconcile', lane: 'cluster', kind: 'system', label: zh('flows.connect-own-gpu.node.reconcile.label'), note: zh('flows.connect-own-gpu.node.reconcile.note') },
+    { id: 'budget', lane: 'cluster', kind: 'decision', label: zh('flows.connect-own-gpu.node.budget.label') },
+    { id: 'degraded', lane: 'authz', kind: 'action', label: zh('flows.connect-own-gpu.node.degraded.label') },
+    { id: 'ready', lane: 'authz', kind: 'system', label: zh('flows.connect-own-gpu.node.ready.label'), note: zh('flows.connect-own-gpu.node.ready.note') },
+    { id: 'end', lane: 'user', kind: 'end', label: zh('flows.connect-own-gpu.node.end.label'), route: '/local-gpu?tab=poc' },
+  ],
+  edges: [
+    { from: 'start', to: 'token' },
+    { from: 'token', to: 'install', label: zh('flows.connect-own-gpu.edge.token.install') },
+    { from: 'install', to: 'enroll', label: zh('flows.connect-own-gpu.edge.install.enroll') },
+    { from: 'enroll', to: 'reject', label: zh('flows.connect-own-gpu.edge.enroll.reject'), tone: 'danger' },
+    { from: 'enroll', to: 'identity', label: zh('flows.connect-own-gpu.edge.enroll.identity'), tone: 'success' },
+    { from: 'identity', to: 'audit-enroll', label: zh('flows.connect-own-gpu.edge.identity.audit-enroll') },
+    { from: 'identity', to: 'reconcile', label: zh('flows.connect-own-gpu.edge.identity.reconcile') },
+    { from: 'reconcile', to: 'budget' },
+    { from: 'budget', to: 'degraded', label: zh('flows.connect-own-gpu.edge.budget.degraded'), tone: 'warning' },
+    { from: 'budget', to: 'ready', label: zh('flows.connect-own-gpu.edge.budget.ready'), tone: 'success' },
+    { from: 'ready', to: 'end', label: zh('flows.connect-own-gpu.edge.ready.end'), tone: 'info' },
+  ],
+};
+
 export const GUIDE_FLOWS: Record<string, ScenarioFlowDef> = {
   'hub-first-call': hubFirstCall,
   'trial-request': trialRequest,
   welcome,
+  'connect-own-gpu': connectOwnGpu,
   'register-cluster': registerCluster,
   'deploy-model': deployModel,
   'onboard-tenant': onboardTenant,

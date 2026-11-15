@@ -9,6 +9,7 @@
  *   tf(t, 'guides.<guideId>.pages.<index>.label', 原值) 取得目前語言的文字。
  */
 import { zh } from '../i18n/core';
+import { getPortal, portalHasRoute, type Portal } from '../app/portal';
 
 /** 分類代碼（穩定 id）；顯示文字在 overview 區域的 overview.guides.category.<id> */
 export type GuideCategory = 'intro' | 'daily' | 'access' | 'platform' | 'billing';
@@ -40,6 +41,8 @@ export interface GuideStep {
   hint?: string;
   /** 目標稍後才會出現（例如抽屜動畫中），前進時不先檢查存在 */
   lazy?: boolean;
+  /** 只在這些入口顯示此步驟（省略 ＝ 所有入口）。'all' 是開發／測試用的合併主控台 */
+  portals?: Portal[];
 }
 
 export interface Guide {
@@ -56,13 +59,18 @@ export interface Guide {
   /** 含實際操作步驟 */
   interactive?: boolean;
   /** 導覽會經過的頁面（供清單顯示；label 的字典鍵為 guides.<guideId>.pages.<index>.label） */
-  pages: { label: string; route: string }[];
+  pages: { label: string; route: string; /** 原始順序（字典鍵 guides.<id>.pages.<index>.label；依入口過濾後仍保留） */ index?: number }[];
+  /** 只在這些入口提供此指引（省略 ＝ 所有入口） */
+  portals?: Portal[];
+  /** 各入口建議的示範角色（覆寫 recommendedPersona） */
+  personaByPortal?: Partial<Record<Portal, string>>;
   steps: GuideStep[];
 }
 
 export const GUIDES: Guide[] = [
   {
     id: 'welcome',
+    portals: ['admin', 'all'],
     title: zh('guides.welcome.title'),
     summary: zh('guides.welcome.summary'),
     category: 'intro',
@@ -75,22 +83,55 @@ export const GUIDES: Guide[] = [
     ],
     steps: [
       { id: 'welcome', title: zh('guides.welcome.step.welcome.title'), body: zh('guides.welcome.step.welcome.body') },
-      { id: 'persona', target: 'persona', position: 'below', title: zh('guides.welcome.step.persona.title'), body: zh('guides.welcome.step.persona.body') },
+      { id: 'persona', portals: ['all'], target: 'persona', position: 'below', title: zh('guides.welcome.step.persona.title'), body: zh('guides.welcome.step.persona.body') },
+      { id: 'persona-admin', portals: ['admin'], target: 'persona', position: 'below', title: zh('guides.welcome.step.persona-admin.title'), body: zh('guides.welcome.step.persona-admin.body') },
       { id: 'nav', target: 'nav', position: 'after', title: zh('guides.welcome.step.nav.title'), body: zh('guides.welcome.step.nav.body') },
-      { id: 'nav-hub', target: 'nav-hub', position: 'after', title: zh('guides.welcome.step.nav-hub.title'), body: zh('guides.welcome.step.nav-hub.body') },
+      { id: 'nav-hub', portals: ['all'], target: 'nav-hub', position: 'after', title: zh('guides.welcome.step.nav-hub.title'), body: zh('guides.welcome.step.nav-hub.body') },
       { id: 'kpi', target: 'kpi', position: 'below', route: '/', title: zh('guides.welcome.step.kpi.title'), body: zh('guides.welcome.step.kpi.body') },
       { id: 'token-mix', target: 'token-mix', position: 'after', route: '/', title: zh('guides.welcome.step.token-mix.title'), body: zh('guides.welcome.step.token-mix.body') },
       { id: 'nav-trials', target: 'nav-trials', position: 'after', title: zh('guides.welcome.step.nav-trials.title'), body: zh('guides.welcome.step.nav-trials.body') },
       { id: 'nav-models', target: 'nav-models', position: 'after', title: zh('guides.welcome.step.nav-models.title'), body: zh('guides.welcome.step.nav-models.body') },
       { id: 'nav-pricing', target: 'nav-pricing', position: 'after', title: zh('guides.welcome.step.nav-pricing.title'), body: zh('guides.welcome.step.nav-pricing.body') },
       { id: 'nav-iam', target: 'nav-iam', position: 'after', title: zh('guides.welcome.step.nav-iam.title'), body: zh('guides.welcome.step.nav-iam.body') },
-      { id: 'nav-guides', target: 'nav-guides', position: 'after', title: zh('guides.welcome.step.nav-guides.title'), body: zh('guides.welcome.step.nav-guides.body') },
+      { id: 'nav-guides', portals: ['all'], target: 'nav-guides', position: 'after', title: zh('guides.welcome.step.nav-guides.title'), body: zh('guides.welcome.step.nav-guides.body') },
+      { id: 'nav-guides-admin', portals: ['admin'], target: 'nav-guides', position: 'after', title: zh('guides.welcome.step.nav-guides-admin.title'), body: zh('guides.welcome.step.nav-guides-admin.body') },
       { id: 'help', target: 'help', position: 'below', title: zh('guides.welcome.step.help.title'), body: zh('guides.welcome.step.help.body') },
-      { id: 'done', title: zh('guides.welcome.step.done.title'), body: zh('guides.welcome.step.done.body') },
+      { id: 'done', portals: ['all'], title: zh('guides.welcome.step.done.title'), body: zh('guides.welcome.step.done.body') },
+      { id: 'done-admin', portals: ['admin'], title: zh('guides.welcome.step.done-admin.title'), body: zh('guides.welcome.step.done-admin.body') },
+    ],
+  },
+  {
+    id: 'connect-own-gpu',
+    portals: ['admin', 'all'],
+    title: zh('guides.connect-own-gpu.title'),
+    summary: zh('guides.connect-own-gpu.summary'),
+    category: 'platform',
+    journey: 'vendor',
+    minutes: 4,
+    recommendedPersona: 'cluster-operator',
+    interactive: true,
+    pages: [
+      { label: zh('guides.connect-own-gpu.pages.0.label'), route: '/local-gpu' },
+      { label: zh('guides.connect-own-gpu.pages.1.label'), route: '/clusters' },
+    ],
+    steps: [
+      { id: 'intro', title: zh('guides.connect-own-gpu.step.intro.title'), body: zh('guides.connect-own-gpu.step.intro.body') },
+      { id: 'arch', route: '/local-gpu?tab=flow', target: 'localgpu-arch', position: 'below', title: zh('guides.connect-own-gpu.step.arch.title'), body: zh('guides.connect-own-gpu.step.arch.body') },
+      { id: 'machine', target: 'localgpu-steps', position: 'above', title: zh('guides.connect-own-gpu.step.machine.title'), body: zh('guides.connect-own-gpu.step.machine.body') },
+      { id: 'open-partition', target: 'tab-localgpu-partition', position: 'below', interactive: true, advanceOn: { kind: 'click', target: 'tab-localgpu-partition' }, hint: zh('guides.connect-own-gpu.step.open-partition.hint'), title: zh('guides.connect-own-gpu.step.open-partition.title'), body: zh('guides.connect-own-gpu.step.open-partition.body') },
+      { id: 'strategies', target: 'localgpu-strategies', position: 'below', lazy: true, title: zh('guides.connect-own-gpu.step.strategies.title'), body: zh('guides.connect-own-gpu.step.strategies.body') },
+      { id: 'planner', target: 'localgpu-planner', position: 'above', lazy: true, title: zh('guides.connect-own-gpu.step.planner.title'), body: zh('guides.connect-own-gpu.step.planner.body') },
+      { id: 'open-install', target: 'tab-localgpu-install', position: 'below', interactive: true, advanceOn: { kind: 'click', target: 'tab-localgpu-install' }, hint: zh('guides.connect-own-gpu.step.open-install.hint'), title: zh('guides.connect-own-gpu.step.open-install.title'), body: zh('guides.connect-own-gpu.step.open-install.body') },
+      { id: 'stack', target: 'localgpu-stack', position: 'below', lazy: true, title: zh('guides.connect-own-gpu.step.stack.title'), body: zh('guides.connect-own-gpu.step.stack.body') },
+      { id: 'agent', target: 'localgpu-agent', position: 'above', lazy: true, title: zh('guides.connect-own-gpu.step.agent.title'), body: zh('guides.connect-own-gpu.step.agent.body') },
+      { id: 'open-validation', target: 'tab-localgpu-poc', position: 'below', interactive: true, advanceOn: { kind: 'click', target: 'tab-localgpu-poc' }, hint: zh('guides.connect-own-gpu.step.open-validation.hint'), title: zh('guides.connect-own-gpu.step.open-validation.title'), body: zh('guides.connect-own-gpu.step.open-validation.body') },
+      { id: 'findings', target: 'localgpu-findings', position: 'below', lazy: true, title: zh('guides.connect-own-gpu.step.findings.title'), body: zh('guides.connect-own-gpu.step.findings.body') },
+      { id: 'done', title: zh('guides.connect-own-gpu.step.done.title'), body: zh('guides.connect-own-gpu.step.done.body') },
     ],
   },
   {
     id: 'register-cluster',
+    portals: ['admin', 'all'],
     title: zh('guides.register-cluster.title'),
     summary: zh('guides.register-cluster.summary'),
     category: 'platform',
@@ -114,6 +155,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'deploy-model',
+    portals: ['admin', 'all'],
     title: zh('guides.deploy-model.title'),
     summary: zh('guides.deploy-model.summary'),
     category: 'platform',
@@ -135,6 +177,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'onboard-tenant',
+    portals: ['admin', 'all'],
     title: zh('guides.onboard-tenant.title'),
     summary: zh('guides.onboard-tenant.summary'),
     category: 'platform',
@@ -155,6 +198,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'create-key-playground',
+    portals: ['customer', 'all'],
     title: zh('guides.create-key-playground.title'),
     summary: zh('guides.create-key-playground.summary'),
     category: 'daily',
@@ -179,6 +223,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'connect-provider-bailian',
+    portals: ['admin', 'all'],
     title: zh('guides.connect-provider-bailian.title'),
     summary: zh('guides.connect-provider-bailian.summary'),
     category: 'platform',
@@ -204,6 +249,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'routing-spillover',
+    portals: ['admin', 'all'],
     title: zh('guides.routing-spillover.title'),
     summary: zh('guides.routing-spillover.summary'),
     category: 'platform',
@@ -227,6 +273,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'assign-role-approval',
+    portals: ['customer', 'all'],
     title: zh('guides.assign-role-approval.title'),
     summary: zh('guides.assign-role-approval.summary'),
     category: 'access',
@@ -254,6 +301,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'billing',
+    portals: ['admin', 'all'],
     title: zh('guides.billing.title'),
     summary: zh('guides.billing.summary'),
     category: 'billing',
@@ -281,6 +329,7 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'denied-request-access',
+    portals: ['customer', 'all'],
     title: zh('guides.denied-request-access.title'),
     summary: zh('guides.denied-request-access.summary'),
     category: 'access',
@@ -306,6 +355,7 @@ export const GUIDES: Guide[] = [
 
 export const HUB_FIRST_CALL_GUIDE: Guide = {
   id: 'hub-first-call',
+  portals: ['customer', 'all'],
   title: zh('guides.hub-first-call.title'),
   summary: zh('guides.hub-first-call.summary'),
   category: 'intro',
@@ -338,6 +388,7 @@ export const HUB_FIRST_CALL_GUIDE: Guide = {
 
 export const TRIAL_REQUEST_GUIDE: Guide = {
   id: 'trial-request',
+  personaByPortal: { customer: 'tenant-admin' },
   title: zh('guides.trial-request.title'),
   summary: zh('guides.trial-request.summary'),
   category: 'daily',
@@ -351,20 +402,72 @@ export const TRIAL_REQUEST_GUIDE: Guide = {
     { label: zh('guides.trial-request.pages.2.label'), route: '/trials' },
   ],
   steps: [
-    { id: 'intro', title: zh('guides.trial-request.step.intro.title'), body: zh('guides.trial-request.step.intro.body') },
-    { id: 'hub-trial', route: '/hub', target: 'hub-trial', position: 'below', interactive: true, advanceOn: { kind: 'click', target: 'hub-trial' }, hint: zh('guides.trial-request.step.hub-trial.hint'), title: zh('guides.trial-request.step.hub-trial.title'), body: zh('guides.trial-request.step.hub-trial.body') },
-    { id: 'form', route: '/hub/trial', target: 'trial-form', position: 'after', lazy: true, interactive: true, advanceOn: { kind: 'appear', target: 'trial-done' }, hint: zh('guides.trial-request.step.form.hint'), title: zh('guides.trial-request.step.form.title'), body: zh('guides.trial-request.step.form.body') },
-    { id: 'done-dialog', target: 'trial-done', position: 'below', lazy: true, title: zh('guides.trial-request.step.done-dialog.title'), body: zh('guides.trial-request.step.done-dialog.body') },
-    { id: 'queue', route: '/trials', target: 'trials-table', position: 'above', lazy: true, interactive: true, advanceOn: { kind: 'appear', target: 'trial-detail' }, hint: zh('guides.trial-request.step.queue.hint'), title: zh('guides.trial-request.step.queue.title'), body: zh('guides.trial-request.step.queue.body') },
-    { id: 'review', target: 'trial-approve', position: 'before', lazy: true, interactive: true, advanceOn: { kind: 'appear', target: 'trial-approved' }, hint: zh('guides.trial-request.step.review.hint'), title: zh('guides.trial-request.step.review.title'), body: zh('guides.trial-request.step.review.body') },
-    { id: 'approved', target: 'trial-approved', position: 'before', lazy: true, interactive: true, advanceOn: { kind: 'click', target: 'trial-view-tenant' }, hint: zh('guides.trial-request.step.approved.hint'), title: zh('guides.trial-request.step.approved.title'), body: zh('guides.trial-request.step.approved.body') },
-    { id: 'tenant', target: 'tenant-cards', position: 'below', lazy: true, title: zh('guides.trial-request.step.tenant.title'), body: zh('guides.trial-request.step.tenant.body') },
-    { id: 'done', title: zh('guides.trial-request.step.done.title'), body: zh('guides.trial-request.step.done.body') },
+    { id: 'intro', portals: ['customer', 'all'], title: zh('guides.trial-request.step.intro.title'), body: zh('guides.trial-request.step.intro.body') },
+    { id: 'intro-admin', portals: ['admin'], title: zh('guides.trial-request.step.intro-admin.title'), body: zh('guides.trial-request.step.intro-admin.body') },
+    { id: 'hub-trial', portals: ['customer', 'all'], route: '/hub', target: 'hub-trial', position: 'below', interactive: true, advanceOn: { kind: 'click', target: 'hub-trial' }, hint: zh('guides.trial-request.step.hub-trial.hint'), title: zh('guides.trial-request.step.hub-trial.title'), body: zh('guides.trial-request.step.hub-trial.body') },
+    { id: 'form', portals: ['customer', 'all'], route: '/hub/trial', target: 'trial-form', position: 'after', lazy: true, interactive: true, advanceOn: { kind: 'appear', target: 'trial-done' }, hint: zh('guides.trial-request.step.form.hint'), title: zh('guides.trial-request.step.form.title'), body: zh('guides.trial-request.step.form.body') },
+    { id: 'done-dialog', portals: ['all'], target: 'trial-done', position: 'below', lazy: true, title: zh('guides.trial-request.step.done-dialog.title'), body: zh('guides.trial-request.step.done-dialog.body') },
+    { id: 'done-dialog-customer', portals: ['customer'], target: 'trial-done', position: 'below', lazy: true, title: zh('guides.trial-request.step.done-dialog-customer.title'), body: zh('guides.trial-request.step.done-dialog-customer.body') },
+    { id: 'done-customer', portals: ['customer'], title: zh('guides.trial-request.step.done-customer.title'), body: zh('guides.trial-request.step.done-customer.body') },
+    { id: 'queue', portals: ['all'], route: '/trials', target: 'trials-table', position: 'above', lazy: true, interactive: true, advanceOn: { kind: 'appear', target: 'trial-detail' }, hint: zh('guides.trial-request.step.queue.hint'), title: zh('guides.trial-request.step.queue.title'), body: zh('guides.trial-request.step.queue.body') },
+    { id: 'queue-admin', portals: ['admin'], route: '/trials', target: 'trials-table', position: 'above', lazy: true, interactive: true, advanceOn: { kind: 'appear', target: 'trial-detail' }, hint: zh('guides.trial-request.step.queue-admin.hint'), title: zh('guides.trial-request.step.queue-admin.title'), body: zh('guides.trial-request.step.queue-admin.body') },
+    { id: 'review', portals: ['admin', 'all'], target: 'trial-approve', position: 'before', lazy: true, interactive: true, advanceOn: { kind: 'appear', target: 'trial-approved' }, hint: zh('guides.trial-request.step.review.hint'), title: zh('guides.trial-request.step.review.title'), body: zh('guides.trial-request.step.review.body') },
+    { id: 'approved', portals: ['admin', 'all'], target: 'trial-approved', position: 'before', lazy: true, interactive: true, advanceOn: { kind: 'click', target: 'trial-view-tenant' }, hint: zh('guides.trial-request.step.approved.hint'), title: zh('guides.trial-request.step.approved.title'), body: zh('guides.trial-request.step.approved.body') },
+    { id: 'tenant', portals: ['admin', 'all'], target: 'tenant-cards', position: 'below', lazy: true, title: zh('guides.trial-request.step.tenant.title'), body: zh('guides.trial-request.step.tenant.body') },
+    { id: 'done', portals: ['all'], title: zh('guides.trial-request.step.done.title'), body: zh('guides.trial-request.step.done.body') },
+    { id: 'done-admin', portals: ['admin'], title: zh('guides.trial-request.step.done-admin.title'), body: zh('guides.trial-request.step.done-admin.body') },
   ],
 };
 
 GUIDES.push(HUB_FIRST_CALL_GUIDE, TRIAL_REQUEST_GUIDE);
 
-export function getGuide(id: string | null | undefined): Guide | undefined {
-  return GUIDES.find((g) => g.id === id);
+/** 客戶入口專用的歡迎導覽（不在 GUIDES 內：合併主控台沿用原本的 welcome） */
+const w = (k: string) => zh(`guides.welcome-customer.${k}`);
+const wStep = (id: string, extra: Partial<GuideStep> = {}): GuideStep => ({ id, ...extra, title: w(`step.${id}.title`), body: w(`step.${id}.body`) });
+export const CUSTOMER_WELCOME_GUIDE: Guide = {
+  id: 'welcome-customer',
+  title: w('title'),
+  summary: w('summary'),
+  category: 'intro',
+  journey: 'customer',
+  minutes: 2,
+  recommendedPersona: 'tenant-admin',
+  portals: ['customer'],
+  pages: [{ label: w('pages.0.label'), route: '/hub' }],
+  steps: [
+    wStep('welcome'),
+    wStep('persona', { target: 'persona', position: 'below' }),
+    wStep('nav-hub', { target: 'nav-hub', position: 'after' }),
+    wStep('nav-playground', { target: 'nav-playground', position: 'after' }),
+    wStep('nav-keys', { target: 'nav-keys', position: 'after' }),
+    wStep('nav-usage', { target: 'nav-usage', position: 'after' }),
+    wStep('nav-plan', { target: 'nav-plan', position: 'after' }),
+    wStep('nav-guides', { target: 'nav-guides', position: 'after' }),
+    wStep('help', { target: 'help', position: 'below' }),
+    wStep('done'),
+  ],
+};
+
+/** 依入口調整一則指引：過濾不屬於該入口的步驟與頁面、套用該入口的建議角色與旅程分組 */
+function adaptGuide(g: Guide, portal: Portal): Guide | undefined {
+  if (g.portals && !g.portals.includes(portal)) return undefined;
+  const steps = g.steps.filter((st) => !st.portals || st.portals.includes(portal));
+  if (portal === 'all') return steps.length === g.steps.length ? g : { ...g, steps };
+  return {
+    ...g,
+    journey: portal === 'customer' ? 'customer' : 'vendor',
+    recommendedPersona: g.personaByPortal?.[portal] ?? g.recommendedPersona,
+    pages: g.pages.map((p, index) => ({ ...p, index })).filter((p) => portalHasRoute(p.route, portal)),
+    steps,
+  };
+}
+
+/** 這個入口看得到的指引（第一則是該入口的歡迎導覽） */
+export function visibleGuides(portal: Portal = getPortal()): Guide[] {
+  const list = (portal === 'customer' ? [CUSTOMER_WELCOME_GUIDE, ...GUIDES] : GUIDES).map((g) => adaptGuide(g, portal));
+  return list.filter((g): g is Guide => !!g);
+}
+
+export function getGuide(id: string | null | undefined, portal: Portal = getPortal()): Guide | undefined {
+  return visibleGuides(portal).find((g) => g.id === id);
 }

@@ -36,6 +36,7 @@ import {
   QuestionCircleRegular,
   RocketRegular,
   ServerRegular,
+  DeveloperBoardRegular,
   SettingsRegular,
   StoreMicrosoftRegular,
   WalletCreditCardRegular,
@@ -48,6 +49,8 @@ import { useSession } from './SessionContext';
 import { THEME_LABEL_KEYS, useThemeMode, type ThemeMode } from '../theme/ThemeProvider';
 import { LOCALES, LOCALE_NATIVE_NAMES, principalLabel, setLocale, tenantLabel as tenantText, tf, useT, type Locale } from '../i18n';
 import { PERSONAS, TENANTS, USERS } from '../server/seed';
+import { getPortal, portalHasRoute, type Portal } from './portal';
+import { personasForPortal } from './portalPersonas';
 import type { Action } from '../auth/types';
 import { TourProvider, useTour } from '../components/OnboardingTour';
 import { server } from '../server/api';
@@ -216,6 +219,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/tenants', labelKey: 'nav.tenants', icon: <BuildingMultipleRegular />, action: 'tenant.read' },
       { to: '/models', labelKey: 'nav.models', icon: <AppsListRegular />, action: 'model.read', match: ['/deployments'] },
       { to: '/clusters', labelKey: 'nav.clusters', icon: <ServerRegular />, action: 'cluster.read', hideIfDenied: true },
+      { to: '/local-gpu', labelKey: 'nav.localGpu', icon: <DeveloperBoardRegular />, action: 'cluster.read', hideIfDenied: true },
       { to: '/providers', labelKey: 'nav.providers', icon: <CloudRegular />, action: 'provider.read' },
       { to: '/routing', labelKey: 'nav.routing', icon: <ArrowRoutingRegular />, action: 'model.read' },
       { to: '/pricing', labelKey: 'nav.pricing', icon: <MoneyRegular />, action: 'billing.read', platformScope: true },
@@ -240,8 +244,26 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+/**
+ * 各入口的導覽群組：
+ * - 客戶入口：客戶入口 + 帳戶與團隊 + 操作指引
+ * - 管理後台：平台營運 + 租戶支援工具（Playground、API 金鑰、用量與帳單；不含模型中心與試用與方案）+ 操作指引
+ * - 合併主控台（開發／測試）：依角色顯示，與拆分前相同
+ */
+export function navGroupsFor(portal: Portal, isVendor: boolean): NavGroup[] {
+  const byId = (id: string) => NAV_GROUPS.find((g) => g.id === id)!;
+  if (portal === 'customer') return [byId('customer'), byId('account'), byId('help')];
+  if (portal === 'admin') {
+    const tools = byId('customer');
+    return [byId('vendor'), { ...tools, titleKey: 'nav.group.tenantTools', items: tools.items.filter((i) => portalHasRoute(i.to, 'admin')) }, byId('help')];
+  }
+  return NAV_GROUPS.filter((g) => (g.vendorOnly ? isVendor : true) && (g.customerOnly ? !isVendor : true));
+}
+
 /** 切換示範角色後的落地頁：我們的角色 → 總覽；客戶 → 模型中心 */
 export function landingFor(personaId: string): string {
+  if (getPortal() === 'customer') return '/hub';
+  if (getPortal() === 'admin') return '/';
   const persona = PERSONAS.find((p) => p.id === personaId);
   const user = persona ? USERS.find((u) => u.id === persona.userId) : undefined;
   return user && user.tenantId === null ? '/' : '/hub';
@@ -344,7 +366,7 @@ function ShellInner() {
   };
 
   const allowed = (item: NavItem) => (item.action ? (item.platformScope ? canUi(item.action, PLATFORM_SCOPE) : canUiAnywhere(item.action)) : true);
-  const groups = NAV_GROUPS.filter((g) => (g.vendorOnly ? isVendor : true) && (g.customerOnly ? !isVendor : true));
+  const groups = navGroupsFor(getPortal(), isVendor);
 
   return (
     <div className={s.root}>
@@ -363,7 +385,7 @@ function ShellInner() {
           />
         </Tooltip>
         <a href={isVendor ? '#/' : '#/hub'} className={s.brand}>
-          {t('shell.brand')}
+          {t(getPortal() === 'admin' ? 'shell.brand.admin' : 'shell.brand')}
           <Badge appearance="outline" size="small" className={s.demoBadge} style={{ color: 'inherit', borderColor: 'currentColor' }}>
             {t('common.demo')}
           </Badge>
@@ -426,7 +448,7 @@ function ShellInner() {
             {t('shell.persona.label')}
           </Text>
           <Dropdown size="small" className={s.personaDropdown} aria-labelledby="persona-label" aria-label={t('shell.persona.label')} value={currentPersonaLabel} selectedOptions={[persona.id]} onOptionSelect={(_, d) => d.optionValue && switchPersona(d.optionValue)}>
-            {PERSONAS.map((p) => (
+            {personasForPortal().map((p) => (
               <Option key={p.id} value={p.id} text={personaLabel(p)}>
                 {personaLabel(p)} — {personaDescription(p)}
               </Option>
@@ -440,7 +462,7 @@ function ShellInner() {
             </MenuTrigger>
             <MenuPopover>
               <MenuList aria-label={t('shell.persona.menu')}>
-                {PERSONAS.map((p) => (
+                {personasForPortal().map((p) => (
                   <MenuItemRadio key={p.id} name="persona" value={p.id}>
                     {personaLabel(p)}
                   </MenuItemRadio>

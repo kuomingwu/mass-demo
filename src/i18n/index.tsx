@@ -8,6 +8,7 @@ import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { applyHtmlLang, getLocale, hasKey, setLocale, subscribe, translate, translatePlural } from './core';
 import * as F from './format';
 import type { Locale, TParams } from './types';
+import { getPortal } from '../app/portal';
 
 export type { Locale, TParams } from './types';
 export { LOCALES, LOCALE_NATIVE_NAMES, LOCALE_TAGS, DEFAULT_LOCALE, LOCALE_STORAGE_KEY, detectLocale, isLocale } from './types';
@@ -129,7 +130,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     applyHtmlLang(locale);
     // 分頁標題（index.html 的 <title> 為 zh-TW 預設值）
-    document.title = translate(locale, 'shell.docTitle');
+    document.title = translate(locale, getPortal() === 'admin' ? 'shell.docTitle.admin' : 'shell.docTitle');
   }, [locale]);
   return <>{children}</>;
 }

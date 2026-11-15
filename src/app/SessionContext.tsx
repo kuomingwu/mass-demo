@@ -29,14 +29,18 @@ interface SessionCtx {
 
 const Ctx = createContext<SessionCtx | null>(null);
 
+import { defaultPersona, personaAllowed } from './portalPersonas';
+
 const STORAGE_KEY = 'maas-demo-persona';
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  // 每個入口只接受屬於它的示範角色：管理後台 ＝ 我們的角色，客戶入口 ＝ 客戶角色；不符時退回該入口的預設角色
   const [personaId, setPersonaId] = useState<string>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY) ?? 'owner';
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored && personaAllowed(stored) ? stored : defaultPersona();
     } catch {
-      return 'owner';
+      return defaultPersona();
     }
   });
   const [version, setVersion] = useState(0);
@@ -53,6 +57,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [principal?.tenantId]);
 
   const setPersona = useCallback((id: string) => {
+    if (!personaAllowed(id)) return;
     setPersonaId(id);
     try {
       localStorage.setItem(STORAGE_KEY, id);

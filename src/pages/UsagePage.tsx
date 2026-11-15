@@ -1,3 +1,4 @@
+import { portalHasRoute } from '../app/portal';
 import { Badge, Button, Dropdown, Field, Input, Link, MessageBar, MessageBarBody, MessageBarTitle, Option, ProgressBar, Tab, TabList, Text, Tooltip, createTableColumn, makeStyles, tokens, type TableColumnDefinition } from '@fluentui/react-components';
 import { ArrowDownloadRegular } from '@fluentui/react-icons';
 import { useMemo, useState } from 'react';
@@ -383,7 +384,7 @@ function StatementTab({ tenantOptions, initialTenant }: { tenantOptions: string[
                   </span>
                   <span className={s.tileLabel}>
                     {t('billing.statement.credits.detail', { balance: formatUsd(b.credits.balanceUsd), deducted: formatUsd(b.credits.deductedUsd), low: b.credits.lowBalance ? t('billing.statement.credits.low') : '' })}
-                    <Link as="a" href="#/plan">{t('billing.statement.credits.topUp')}</Link>
+                    {portalHasRoute('/plan') && <Link as="a" href="#/plan">{t('billing.statement.credits.topUp')}</Link>}
                   </span>
                 </div>
               )}

@@ -12,7 +12,9 @@ import billing from './dict/ja/billing';
 import overview from './dict/ja/overview';
 import ops from './dict/ja/ops';
 import admin from './dict/ja/admin';
+import localgpu from './dict/ja/localgpu';
+import portal from './dict/ja/portal';
 
-const dict: Dict = { ...common, ...shell, ...data, ...server, ...guides, ...flows, ...hub, ...customer, ...billing, ...overview, ...ops, ...admin };
+const dict: Dict = { ...common, ...shell, ...data, ...server, ...guides, ...flows, ...hub, ...customer, ...billing, ...overview, ...ops, ...admin, ...localgpu, ...portal };
 
 export default dict;

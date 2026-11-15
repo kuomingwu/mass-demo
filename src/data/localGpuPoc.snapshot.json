@@ -1,0 +1,387 @@
+{
+  "generatedAt": "2026-11-15T12:46:10.118Z",
+  "storageRoot": "<data-root>",
+  "node": {
+    "name": "poc-laptop-01",
+    "agentVersion": "0.1.0-poc",
+    "gpuName": "NVIDIA GeForce RTX 4080 Laptop GPU",
+    "memoryTotalMiB": 12282,
+    "reserveMiB": 1536,
+    "sliceBudgetMiB": 10746,
+    "driver": "610.74",
+    "runtime": "ollama 0.40.16",
+    "os": "win32",
+    "mig": "unsupported",
+    "strategy": "vram-budget",
+    "measurement": {
+      "baselineUsedMiB": 644,
+      "loadedUsedMiB": 7118,
+      "gpuDeltaMiB": 6474,
+      "runtimeReportedMiB": 5190,
+      "overheadMiB": 1284
+    }
+  },
+  "slices": [
+    {
+      "id": "slice-a",
+      "publicId": "gemma-3-4b",
+      "sharing": "shared",
+      "tenantId": null,
+      "budgetMiB": 3840,
+      "reportedMiB": 2748,
+      "measuredMiB": 3390,
+      "numCtx": 4096,
+      "loadMs": 6682,
+      "state": "ready"
+    },
+    {
+      "id": "slice-b",
+      "publicId": "llama-3.2-3b",
+      "sharing": "shared",
+      "tenantId": null,
+      "budgetMiB": 3584,
+      "reportedMiB": 2442,
+      "measuredMiB": 3084,
+      "numCtx": 4096,
+      "loadMs": 2913,
+      "state": "ready"
+    }
+  ],
+  "dedicated": {
+    "switchMs": 18089,
+    "slice": {
+      "id": "slice-d",
+      "publicId": "gemma-3-taide-12b",
+      "sharing": "dedicated",
+      "tenantId": "t-gov",
+      "budgetMiB": 10496,
+      "reportedMiB": 7730,
+      "measuredMiB": 7730,
+      "numCtx": 4096,
+      "loadMs": 9328,
+      "state": "ready"
+    }
+  },
+  "checks": [
+    {
+      "id": "A01",
+      "title": "Node enrolled, online, heartbeat fresh",
+      "pass": true,
+      "detail": "poc-laptop-01 / NVIDIA GeForce RTX 4080 Laptop GPU / agent 0.1.0-poc"
+    },
+    {
+      "id": "A02",
+      "title": "Every slice in the active profile is ready and inside its VRAM budget",
+      "pass": true,
+      "detail": "slice-a=ready 3390/3840 MiB, slice-b=ready 3084/3584 MiB"
+    },
+    {
+      "id": "A03",
+      "title": "GET /v1/models lists the catalog with prices and readiness",
+      "pass": true,
+      "detail": "gemma-3-4b:ready, llama-3.2-3b:ready, gemma-3-taide-12b:not-loaded"
+    },
+    {
+      "id": "A04",
+      "title": "Public-sector tenant sees only its allowed catalog",
+      "pass": true,
+      "detail": "gemma-3-4b, gemma-3-taide-12b"
+    },
+    {
+      "id": "A05",
+      "title": "Request without an API key is rejected",
+      "pass": true,
+      "detail": "HTTP 401 INVALID_API_KEY"
+    },
+    {
+      "id": "A06",
+      "title": "Exhausted prepaid credits return 402",
+      "pass": true,
+      "detail": "HTTP 402 INSUFFICIENT_CREDITS"
+    },
+    {
+      "id": "A07",
+      "title": "Model outside the tenant catalog returns 403",
+      "pass": true,
+      "detail": "HTTP 403 MODEL_NOT_ALLOWED"
+    },
+    {
+      "id": "A08",
+      "title": "Unknown model returns 400",
+      "pass": true,
+      "detail": "HTTP 400 VALIDATION"
+    },
+    {
+      "id": "A09",
+      "title": "Model with no ready slice returns 503 with Retry-After",
+      "pass": true,
+      "detail": "HTTP 503 MODEL_NOT_READY, Retry-After 10s"
+    },
+    {
+      "id": "A10",
+      "title": "Non-streaming chat completion succeeds with usage",
+      "pass": true,
+      "detail": "34 in / 150 out, slice slice-a"
+    },
+    {
+      "id": "A11",
+      "title": "Response carries retention, node and slice headers",
+      "pass": true,
+      "detail": "x-maas-retention=none, x-maas-node=node-c427f45c"
+    },
+    {
+      "id": "A12",
+      "title": "Streaming completion sends SSE chunks, a usage chunk and [DONE]",
+      "pass": true,
+      "detail": "TTFT 842.7 ms, 120 tokens, 144 tok/s, slice slice-b"
+    },
+    {
+      "id": "A13",
+      "title": "Requests for different models land on different slices",
+      "pass": true,
+      "detail": "slice-a vs slice-b"
+    },
+    {
+      "id": "A14",
+      "title": "Tenant over its TPM limit gets 429 with Retry-After",
+      "pass": true,
+      "detail": "first HTTP 200, second HTTP 429, Retry-After 60s"
+    },
+    {
+      "id": "A15",
+      "title": "Every authenticated request (allowed and denied) is in the ledger on the data drive",
+      "pass": true,
+      "detail": "8 ledger lines in <data-root>/ledger\\usage-2026-11-15.jsonl"
+    },
+    {
+      "id": "A16",
+      "title": "Ledger cost equals tokens x price, and balances dropped by the same total",
+      "pass": true,
+      "detail": "ledger US$0.00003392 vs balance drop US$0.00003392"
+    },
+    {
+      "id": "A17",
+      "title": "Zero retention: no prompt or completion text is stored in the ledger",
+      "pass": true,
+      "detail": "fields: ts, requestId, tenantId, keyId, model, nodeId, sliceId, sharing, stream, status, code, promptTokens, completionTokens, costUsd, ttftMs, durationMs, evalMs, tokPerSec"
+    },
+    {
+      "id": "C01",
+      "title": "Control plane accepts the profile switch",
+      "pass": true,
+      "detail": "generation 4"
+    },
+    {
+      "id": "C02",
+      "title": "Agent reconciled: old slices unloaded, dedicated slice loaded",
+      "pass": true,
+      "detail": "ready 7730/10496 MiB after 18 s"
+    },
+    {
+      "id": "C03",
+      "title": "Another tenant cannot use the dedicated slice",
+      "pass": true,
+      "detail": "HTTP 503 MODEL_NOT_READY"
+    },
+    {
+      "id": "C04",
+      "title": "Models from the previous profile are no longer served",
+      "pass": true,
+      "detail": "HTTP 503 MODEL_NOT_READY"
+    },
+    {
+      "id": "C05",
+      "title": "Owning tenant gets completions from its dedicated slice",
+      "pass": true,
+      "detail": "42.3 tok/s, TTFT p50 102.6 ms"
+    },
+    {
+      "id": "C06",
+      "title": "Switched back to the shared profile and slices are ready again",
+      "pass": true,
+      "detail": "20 s"
+    }
+  ],
+  "benchmarks": [
+    {
+      "group": "solo",
+      "label": "gemma-3-4b alone, concurrency 1",
+      "concurrency": 1,
+      "totalTokPerSec": 107.7,
+      "errors": 0,
+      "gpuUtilPct": 84.6,
+      "gpuPowerW": 126.6,
+      "perModel": {
+        "gemma-3-4b": {
+          "tokPerSec": 107.7,
+          "ttftMsP50": 58.3,
+          "ttftMsP95": 73
+        }
+      }
+    },
+    {
+      "group": "solo",
+      "label": "gemma-3-4b alone, concurrency 2",
+      "concurrency": 2,
+      "totalTokPerSec": 109.8,
+      "errors": 0,
+      "gpuUtilPct": 74.7,
+      "gpuPowerW": 112.7,
+      "perModel": {
+        "gemma-3-4b": {
+          "tokPerSec": 109.8,
+          "ttftMsP50": 59.5,
+          "ttftMsP95": 1282.5
+        }
+      }
+    },
+    {
+      "group": "solo",
+      "label": "gemma-3-4b alone, concurrency 4",
+      "concurrency": 4,
+      "totalTokPerSec": 111.4,
+      "errors": 0,
+      "gpuUtilPct": 81.7,
+      "gpuPowerW": 123.1,
+      "perModel": {
+        "gemma-3-4b": {
+          "tokPerSec": 111.4,
+          "ttftMsP50": 1296.9,
+          "ttftMsP95": 3655.3
+        }
+      }
+    },
+    {
+      "group": "solo",
+      "label": "llama-3.2-3b alone, concurrency 1",
+      "concurrency": 1,
+      "totalTokPerSec": 148.2,
+      "errors": 0,
+      "gpuUtilPct": 90.3,
+      "gpuPowerW": 135.2,
+      "perModel": {
+        "llama-3.2-3b": {
+          "tokPerSec": 148.2,
+          "ttftMsP50": 31.1,
+          "ttftMsP95": 53.9
+        }
+      }
+    },
+    {
+      "group": "solo",
+      "label": "llama-3.2-3b alone, concurrency 2",
+      "concurrency": 2,
+      "totalTokPerSec": 148.4,
+      "errors": 0,
+      "gpuUtilPct": 89.8,
+      "gpuPowerW": 137.8,
+      "perModel": {
+        "llama-3.2-3b": {
+          "tokPerSec": 148.4,
+          "ttftMsP50": 38.7,
+          "ttftMsP95": 841.1
+        }
+      }
+    },
+    {
+      "group": "solo",
+      "label": "llama-3.2-3b alone, concurrency 4",
+      "concurrency": 4,
+      "totalTokPerSec": 134.8,
+      "errors": 0,
+      "gpuUtilPct": 82.8,
+      "gpuPowerW": 119.5,
+      "perModel": {
+        "llama-3.2-3b": {
+          "tokPerSec": 134.8,
+          "ttftMsP50": 943.9,
+          "ttftMsP95": 2773.4
+        }
+      }
+    },
+    {
+      "group": "contended",
+      "label": "both slices busy, concurrency 1 each",
+      "concurrency": 2,
+      "totalTokPerSec": 117.9,
+      "errors": 0,
+      "gpuUtilPct": 84.4,
+      "gpuPowerW": 120,
+      "perModel": {
+        "gemma-3-4b": {
+          "tokPerSec": 62.1,
+          "ttftMsP50": 97.5,
+          "ttftMsP95": 134.1
+        },
+        "llama-3.2-3b": {
+          "tokPerSec": 55.8,
+          "ttftMsP50": 43.4,
+          "ttftMsP95": 59.8
+        }
+      }
+    },
+    {
+      "group": "contended",
+      "label": "both slices busy, concurrency 2 each",
+      "concurrency": 4,
+      "totalTokPerSec": 123,
+      "errors": 0,
+      "gpuUtilPct": 96,
+      "gpuPowerW": 135.4,
+      "perModel": {
+        "gemma-3-4b": {
+          "tokPerSec": 62.3,
+          "ttftMsP50": 108.2,
+          "ttftMsP95": 2695.6
+        },
+        "llama-3.2-3b": {
+          "tokPerSec": 60.7,
+          "ttftMsP50": 53.9,
+          "ttftMsP95": 1806.2
+        }
+      }
+    },
+    {
+      "group": "dedicated",
+      "label": "gemma-3-taide-12b dedicated, concurrency 1",
+      "concurrency": 1,
+      "totalTokPerSec": 42.3,
+      "errors": 0,
+      "gpuUtilPct": 93.6,
+      "gpuPowerW": 140.5,
+      "perModel": {
+        "gemma-3-taide-12b": {
+          "tokPerSec": 42.3,
+          "ttftMsP50": 102.6,
+          "ttftMsP95": 125.3
+        }
+      }
+    }
+  ],
+  "interference": {
+    "gemma-3-4b": {
+      "soloTokPerSec": 107.7,
+      "contendedTokPerSec": 62.1,
+      "retainedPct": 57.7
+    },
+    "llama-3.2-3b": {
+      "soloTokPerSec": 148.2,
+      "contendedTokPerSec": 55.8,
+      "retainedPct": 37.7
+    }
+  },
+  "capacity": {
+    "peakAggregateTokPerSec": 148.4,
+    "outputTokensPerDayAt": {
+      "util10": 1282176,
+      "util30": 3846528,
+      "util60": 7693056
+    },
+    "gpuPowerWAtPeak": 137.8,
+    "note": "Output tokens only, measured through the gateway on this machine. A laptop GPU proves the control flow, not production economics."
+  },
+  "totals": {
+    "passed": 23,
+    "failed": 0
+  }
+}

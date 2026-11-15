@@ -56,11 +56,39 @@ The demo has no backend or database — all data is simulated in browser memory,
 
 ```bash
 npm install
-npm run dev        # Dev server (HashRouter, default http://localhost:5173/#/)
-npm run build      # Type-check + build to dist/ (base: './', so dist/index.html works from any static host or via file://)
-npm run preview    # Preview dist/
-npm test           # vitest: policy / authorization, clusters / deployments / billing / tenants, business model, Model Hub, flow diagrams, route smoke tests, i18n quality gates
+npm run dev            # Combined console for development: every role in one site (http://localhost:5173/#/)
+npm run dev:customer   # Customer portal only  (http://localhost:5173/#/)
+npm run dev:admin      # Admin portal only     (http://localhost:5174/#/)
+npm run build          # Type-check, then build BOTH portals: dist-customer/ and dist-admin/
+npm run build:combined # Type-check + build the combined console to dist/
+npm run preview:customer   # Serve dist-customer/ on http://localhost:5183
+npm run preview:admin      # Serve dist-admin/    on http://localhost:5184
+npm test               # vitest: authorization policy, clusters / deployments / billing / tenants, business model, Model Hub, flow diagrams, route smoke tests, the two portals, i18n quality gates
 ```
+
+Every build uses `base: './'`, so each output folder works from any static host or via `file://`.
+
+### Two portals from one code base
+
+The product ships as two sites built from the same source:
+
+| | Customer portal | Admin portal |
+|---|---|---|
+| Build | `vite build --mode customer` → `dist-customer/` | `vite build --mode admin` → `dist-admin/` |
+| Who uses it | Customers (tenants) | Our own operations, finance and owner roles |
+| Home | Model hub | Operations overview |
+| Pages | Model hub, Request a trial, Playground, API keys, Usage & billing, Trial & plan, team access (IAM), audit log, settings, guides | Overview, Trial requests, Tenants & projects, Models & deployments, Inference clusters, Local GPU onboarding, Providers, Routing & spillover, Pricing & billing, IAM, audit log, settings, guides, plus tenant support tools (Playground, API keys, Usage & billing) |
+| Demo personas | Customer roles only | Our roles only (Platform Owner, Platform Operations, Platform Finance) |
+| Guides | 6 customer guides | 9 operations guides |
+
+- The portal is chosen at build time by `VITE_PORTAL` (`.env.customer`, `.env.admin`; `.env` is the combined console). The switch lives in `src/app/portal.ts`; it decides routes, navigation, the persona list and the guides.
+- A path that belongs to the other portal returns 404. The portal is a packaging boundary, not the security boundary: every call to the (mock) server is still authorized per principal, exactly as before.
+- Because the mock server runs in the browser, both bundles still contain the same demo data and page code. A real deployment separates the two sites at the backend: different hostnames, the admin site behind the corporate network, and separate APIs.
+- Guides that cross both sites are split. "Request a trial" walks the customer through the questionnaire in the customer portal, and walks the reviewer through approval in the admin portal.
+
+### Local GPU proof of concept (`poc/`)
+
+`poc/` holds a small, runnable proof of concept for bringing your own GPU machine onto the platform: a node agent, a control plane with an OpenAI-compatible gateway, and an acceptance and load test. It needs an NVIDIA GPU, Ollama and Node.js 20 or newer. See `poc/README.md` (Traditional Chinese). The numbers on the admin portal's "Local GPU onboarding → Validation results" tab come from `src/data/localGpuPoc.snapshot.json`, which `poc/export-snapshot.mjs` regenerates.
 
 On first launch a **platform tour** plays automatically (you can "Skip" at any time; once finished or skipped it is recorded under the `maas-demo-tour-v1` key in `localStorage` and won't pop up again). You can reopen it later from the "Help" button in the top right, or via "Settings → Onboarding → Replay".
 

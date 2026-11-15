@@ -1,3 +1,4 @@
+import { portalHasRoute } from '../app/portal';
 import { Button } from '@fluentui/react-components';
 import { RocketRegular } from '@fluentui/react-icons';
 import { useNavigate } from 'react-router-dom';
@@ -17,9 +18,11 @@ export function TrialsPage() {
         subtitle={t('hub.trials.subtitle', { usd: TRIAL_TERMS.freeCreditUsd, days: TRIAL_TERMS.periodBusinessDays })}
         crumbs={[{ label: t('hub.trials.title') }]}
         actions={
-          <Button icon={<RocketRegular />} onClick={() => navigate('/hub/trial')} data-tour="trials-open-form">
-            {t('hub.trials.openForm')}
-          </Button>
+          portalHasRoute('/hub/trial') ? (
+            <Button icon={<RocketRegular />} onClick={() => navigate('/hub/trial')} data-tour="trials-open-form">
+              {t('hub.trials.openForm')}
+            </Button>
+          ) : undefined
         }
       />
       <TrialRequestsTab />

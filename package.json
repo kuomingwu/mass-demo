@@ -6,8 +6,15 @@
   "description": "示範用 MaaS 平台管理主控台（借用 Azure RBAC 概念與 Fluent 2 設計語言，非官方 Azure Portal）",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "dev:customer": "vite --mode customer --port 5173",
+    "dev:admin": "vite --mode admin --port 5174",
+    "build": "tsc -p tsconfig.json --noEmit && vite build --mode customer && vite build --mode admin",
+    "build:customer": "vite build --mode customer",
+    "build:admin": "vite build --mode admin",
+    "build:combined": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
+    "preview:customer": "vite preview --outDir dist-customer --port 5183",
+    "preview:admin": "vite preview --outDir dist-admin --port 5184",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -12,7 +12,9 @@ import billing from './dict/en/billing';
 import overview from './dict/en/overview';
 import ops from './dict/en/ops';
 import admin from './dict/en/admin';
+import localgpu from './dict/en/localgpu';
+import portal from './dict/en/portal';
 
-const dict: Dict = { ...common, ...shell, ...data, ...server, ...guides, ...flows, ...hub, ...customer, ...billing, ...overview, ...ops, ...admin };
+const dict: Dict = { ...common, ...shell, ...data, ...server, ...guides, ...flows, ...hub, ...customer, ...billing, ...overview, ...ops, ...admin, ...localgpu, ...portal };
 
 export default dict;

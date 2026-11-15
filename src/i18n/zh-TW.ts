@@ -12,7 +12,9 @@ import billing from './dict/zh-TW/billing';
 import overview from './dict/zh-TW/overview';
 import ops from './dict/zh-TW/ops';
 import admin from './dict/zh-TW/admin';
+import localgpu from './dict/zh-TW/localgpu';
+import portal from './dict/zh-TW/portal';
 
-const dict: Dict = { ...common, ...shell, ...data, ...server, ...guides, ...flows, ...hub, ...customer, ...billing, ...overview, ...ops, ...admin };
+const dict: Dict = { ...common, ...shell, ...data, ...server, ...guides, ...flows, ...hub, ...customer, ...billing, ...overview, ...ops, ...admin, ...localgpu, ...portal };
 
 export default dict;

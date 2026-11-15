@@ -1,3 +1,4 @@
+import { portalHasRoute } from '../../app/portal';
 import { Accordion, AccordionHeader, AccordionItem, AccordionPanel, Badge, Button, Link, MessageBar, MessageBarBody, Tab, TabList, Text, makeStyles, mergeClasses, shorthands, tokens } from '@fluentui/react-components';
 import { ArrowRightRegular, BuildingRegular, CodeRegular, DocumentTextRegular, KeyRegular, MoneyRegular, RocketRegular, ShieldCheckmarkRegular } from '@fluentui/react-icons';
 import { useState } from 'react';
@@ -440,9 +441,11 @@ export function HubPage() {
               <Button onClick={() => navigate('/plan')} icon={<MoneyRegular />}>
                 {t('hub.gpu.planButton')}
               </Button>
-              <Button onClick={() => navigate('/deployments')} appearance="secondary">
-                {t('hub.gpu.dedicatedButton')}
-              </Button>
+              {portalHasRoute('/deployments') && (
+                <Button onClick={() => navigate('/deployments')} appearance="secondary">
+                  {t('hub.gpu.dedicatedButton')}
+                </Button>
+              )}
               <Button onClick={() => navigate('/hub/trial')} appearance="primary" icon={<RocketRegular />}>
                 {t('hub.gpu.trialButton')}
               </Button>

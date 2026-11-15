@@ -1,3 +1,4 @@
+import { portalHasRoute } from '../app/portal';
 import { Badge, Button, Dropdown, Field, Input, Link, MessageBar, MessageBarBody, MessageBarTitle, Option, Slider, Switch, Text, Textarea, makeStyles, tokens } from '@fluentui/react-components';
 import { SendRegular, StopRegular } from '@fluentui/react-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -296,7 +297,7 @@ export function PlaygroundPage() {
                     {apiErr.retryAfterSec ? t('customer.pg.retryAfter', { sec: apiErr.retryAfterSec }) : ''}
                   </MessageBarTitle>
                   {apiMessage(t, apiErr)} requestId: {apiErr.requestId}
-                  {apiErr.status === 402 && (
+                  {apiErr.status === 402 && portalHasRoute('/plan') && (
                     <>
                       {' '}
                       <Link as="a" href="#/plan" data-tour="pg-topup-link">

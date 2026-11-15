@@ -47,7 +47,7 @@ function mount(ui: React.ReactElement) {
   return container!;
 }
 
-const EXPECTED_IDS = ['welcome', 'register-cluster', 'deploy-model', 'onboard-tenant', 'create-key-playground', 'connect-provider-bailian', 'routing-spillover', 'assign-role-approval', 'billing', 'denied-request-access', 'hub-first-call', 'trial-request'];
+const EXPECTED_IDS = ['welcome', 'register-cluster', 'deploy-model', 'onboard-tenant', 'create-key-playground', 'connect-provider-bailian', 'routing-spillover', 'assign-role-approval', 'billing', 'denied-request-access', 'hub-first-call', 'trial-request', 'connect-own-gpu'];
 const flows = Object.values(GUIDE_FLOWS);
 
 describe('guideFlows 資料完整性', () => {
@@ -63,7 +63,7 @@ describe('guideFlows 資料完整性', () => {
   it('每則操作指引都有對應的流程圖', async () => {
     const { GUIDES } = await import('../../data/guides');
     for (const g of GUIDES) expect(GUIDE_FLOWS[g.id], `guide ${g.id} 缺流程圖`).toBeDefined();
-    expect(GUIDES.length).toBe(12);
+    expect(GUIDES.length).toBe(13);
   });
 
   for (const flow of flows) {
