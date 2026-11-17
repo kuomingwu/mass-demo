@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MaaS 客戶啟用</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1b1f27; --muted: #5d6675; --line: #dfe3ea;
+    --accent: #0f6cbd; --accent-ink: #ffffff; --ok: #0e7a3c; --bad: #b3261e; --code-bg: #f0f2f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171c; --card: #1d2129; --ink: #e8ebf0; --muted: #9aa4b5; --line: #323946; --accent: #4aa3f0; --accent-ink: #0b1220; --ok: #5fd28f; --bad: #ff8a80; --code-bg: #262c37; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 24px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  section.locked { opacity: .5; pointer-events: none; }
+  h2 { font-size: 16px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+  .n { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 13px; display: grid; place-items: center; font-weight: 600; }
+  .hint { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select, textarea { flex: 1 1 220px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  button { padding: 8px 16px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  pre, code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px; }
+  pre { background: var(--code-bg); border-radius: 6px; padding: 10px 12px; margin: 10px 0 0; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .msg { margin: 10px 0 0; font-size: 14px; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; width: 38%; }
+  .out { min-height: 48px; }
+  details { margin-top: 10px; } summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MaaS 客戶啟用</h1>
+  <p class="lead">用業務給你的啟用碼開通帳號，取得 API 金鑰，然後直接呼叫跑在我們自有 GPU 上的模型。</p>
+
+  <section id="s1">
+    <h2><span class="n">1</span>啟用帳號</h2>
+    <p class="hint">啟用碼只能用一次，24 小時內有效。已經有金鑰的話，直接貼在下面第二個欄位。</p>
+    <div class="row">
+      <input id="code" placeholder="啟用碼，例如 act_xxxxxxxx" autocomplete="off">
+      <button id="btnActivate">啟用</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="existing" placeholder="或貼上已有的 API 金鑰 sk-maas_..." autocomplete="off">
+      <button id="btnUse" class="ghost">使用這把金鑰</button>
+    </div>
+    <p id="m1" class="msg"></p>
+  </section>
+
+  <section id="s2" class="locked">
+    <h2><span class="n">2</span>你的 API 金鑰</h2>
+    <p class="hint">金鑰只顯示這一次，伺服器只保存雜湊值。請現在複製並妥善保存。</p>
+    <pre id="key">尚未啟用</pre>
+    <div class="row" style="margin-top:10px">
+      <button id="btnCopy" class="ghost">複製金鑰</button>
+    </div>
+    <details>
+      <summary>用 curl 呼叫的範例</summary>
+      <pre id="curl"></pre>
+    </details>
+  </section>
+
+  <section id="sd" class="locked">
+    <h2><span class="n">3</span>選機房與模型</h2>
+    <p class="hint">選一個機房和一個模型按「啟用」。平台會在那個機房的顯示卡上切出一塊記憶體並載入模型，通常幾秒內就緒。</p>
+    <div class="row">
+      <select id="site"></select>
+      <select id="catalog"></select>
+      <button id="btnDeploy">啟用</button>
+    </div>
+    <p id="md" class="msg"></p>
+    <table id="deps"></table>
+  </section>
+
+  <section id="s3" class="locked">
+    <h2><span class="n">4</span>試打一次</h2>
+    <p class="hint">請求走 OpenAI 相容的 <code>/v1/chat/completions</code>，回覆以串流逐字送回。</p>
+    <div class="row">
+      <select id="model"></select>
+      <button id="btnSend">送出</button>
+    </div>
+    <textarea id="prompt" style="margin-top:8px">用一句話介紹台灣。</textarea>
+    <pre id="out" class="out"></pre>
+    <table id="meta"></table>
+  </section>
+
+  <section id="s4" class="locked">
+    <h2><span class="n">5</span>用量與餘額</h2>
+    <p class="hint">每一次請求都記在用量帳本上。帳本只存 token 數與金額，不存提問與回覆的內容。</p>
+    <div class="row"><button id="btnRefresh" class="ghost">重新整理</button></div>
+    <table id="usage"></table>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let apiKey = '';
+  const say = (el, text, ok) => { el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'bad'); };
+  const rows = (el, pairs) => { el.replaceChildren(...pairs.map(([k, v]) => { const tr = document.createElement('tr'); const th = document.createElement('th'); th.textContent = k; const td = document.createElement('td'); td.textContent = v; tr.append(th, td); return tr; })); };
+  const api = (path, opts = {}) => fetch(path, { ...opts, headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: 'Bearer ' + apiKey } : {}), ...(opts.headers || {}) } });
+  const usd = (n) => 'US$' + Number(n).toFixed(6);
+
+  async function unlock(shownKey) {
+    $('key').textContent = shownKey ? apiKey : '（使用已有的金鑰，不再顯示）';
+    $('btnCopy').disabled = !shownKey;
+    $('curl').textContent = `curl ${location.origin}/v1/chat/completions \\\n  -H "Authorization: Bearer ${shownKey ? apiKey : '<你的金鑰>'}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"gemma-3-270m","messages":[{"role":"user","content":"Hello"}]}'`;
+    for (const id of ['s2', 'sd', 's3', 's4']) $(id).classList.remove('locked');
+    await loadModels();
+    await loadSites();
+    await loadDeployments();
+    setInterval(loadDeployments, 2000);
+    await refresh();
+  }
+
+  let lastModels = '';
+  async function loadModels() {
+    const res = await api('/v1/models');
+    if (!res.ok) return;
+    const j = await res.json();
+    const sig = JSON.stringify(j.data.map((m) => [m.id, m.status]));
+    if (sig === lastModels) return;
+    lastModels = sig;
+    const keep = $('model').value;
+    $('model').replaceChildren(...j.data.map((m) => { const o = document.createElement('option'); o.value = m.id; o.textContent = `${m.id}（${m.status === 'ready' ? '已就緒' : '尚未啟用'}）`; return o; }));
+    $('catalog').replaceChildren(...j.data.map((m) => { const o = document.createElement('option'); o.value = m.id; o.textContent = m.id; return o; }));
+    const ready = j.data.find((m) => m.id === keep && m.status === 'ready') ?? j.data.find((m) => m.status === 'ready');
+    if (ready) $('model').value = ready.id;
+  }
+  async function loadSites() {
+    const res = await api('/portal/v1/sites');
+    if (!res.ok) return;
+    const j = await res.json();
+    $('site').replaceChildren(...j.data.map((x) => { const o = document.createElement('option'); o.value = x.id; o.textContent = `${x.name}${x.location ? '｜' + x.location : ''}（${x.onlineNodes ? '空閒 ' + x.freeMiB + ' MiB' : '沒有機器上線'}）`; return o; }));
+    if (!j.data.length) say($('md'), '平台還沒有可用的機房。', false);
+    else if (j.mode !== 'on-demand') say($('md'), '平台目前使用固定的切割配置，模型由管理者決定。', false);
+  }
+  const DSTATE = { ready: '就緒', pending: '等待機器接手', loading: '載入中', verifying: '驗證中' };
+  async function loadDeployments() {
+    const res = await api('/portal/v1/deployments');
+    if (!res.ok) return;
+    const j = await res.json();
+    const table = $('deps');
+    table.replaceChildren(...j.data.map((d) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th'); th.textContent = d.model;
+      const td = document.createElement('td');
+      td.textContent = `${d.siteName ?? d.siteId}｜${DSTATE[d.state] ?? d.state}｜切片 ${d.sliceId}，${d.measuredMiB ? '實測 ' + d.measuredMiB + '／' : ''}${d.vramMiB} MiB${d.sharedWith > 0 ? '｜與另外 ' + d.sharedWith + ' 個客戶共用' : ''} `;
+      const b = document.createElement('button'); b.className = 'ghost'; b.textContent = '停用'; b.style.padding = '2px 10px';
+      b.onclick = async () => { await api('/portal/v1/deployments/remove', { method: 'POST', body: JSON.stringify({ sliceId: d.sliceId }) }); await loadDeployments(); await loadSites(); };
+      td.append(b); tr.append(th, td); return tr;
+    }));
+    await loadModels();
+  }
+  $('btnDeploy').onclick = async () => {
+    const res = await api('/portal/v1/deployments', { method: 'POST', body: JSON.stringify({ model: $('catalog').value, siteId: $('site').value }) });
+    const j = await res.json();
+    if (!res.ok) return say($('md'), `啟用失敗（${res.status} ${j.error.code}）：${j.error.message}`, false);
+    say($('md'), j.carved ? `已在 ${j.siteName} 切出 ${j.vramMiB} MiB，正在載入 ${j.model}。` : `${j.siteName} 已有 ${j.model} 的切片，直接共用。`, true);
+    await loadDeployments(); await loadSites();
+  };
+
+  $('btnActivate').onclick = async () => {
+    const res = await fetch('/portal/v1/activate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ activationCode: $('code').value.trim() }) });
+    const j = await res.json();
+    if (!res.ok) return say($('m1'), `啟用失敗（${res.status} ${j.error.code}）：${j.error.message}`, false);
+    apiKey = j.apiKey;
+    say($('m1'), `已啟用：${j.name}（${j.tenantId}）`, true);
+    await unlock(true);
+  };
+  $('btnUse').onclick = async () => {
+    apiKey = $('existing').value.trim();
+    const res = await api('/portal/v1/me');
+    if (!res.ok) { apiKey = ''; return say($('m1'), '這把金鑰無效或已撤銷。', false); }
+    const j = await res.json();
+    say($('m1'), `已登入：${j.name}（${j.tenantId}）`, true);
+    await unlock(false);
+  };
+  $('btnCopy').onclick = async () => { try { await navigator.clipboard.writeText(apiKey); $('btnCopy').textContent = '已複製'; } catch { $('btnCopy').textContent = '請手動選取複製'; } };
+
+  $('btnSend').onclick = async () => {
+    $('btnSend').disabled = true;
+    $('out').textContent = '';
+    rows($('meta'), []);
+    const t0 = performance.now();
+    let ttft = null;
+    try {
+      const res = await api('/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: $('model').value, stream: true, stream_options: { include_usage: true }, max_tokens: 200, messages: [{ role: 'user', content: $('prompt').value }] }) });
+      if (!res.ok) { const j = await res.json(); $('out').textContent = `失敗（${res.status} ${j.error.code}）：${j.error.message}`; return; }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', usage = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          const j = JSON.parse(line.slice(6));
+          const text = j.choices?.[0]?.delta?.content;
+          if (text) { if (ttft === null) ttft = performance.now() - t0; $('out').textContent += text; }
+          if (j.usage) usage = j.usage;
+        }
+      }
+      rows($('meta'), [
+        ['服務的 GPU 節點', res.headers.get('x-maas-node') ?? ''],
+        ['GPU 切片', res.headers.get('x-maas-slice') ?? ''],
+        ['資料保存', res.headers.get('x-maas-retention') === 'none' ? '不保存內容' : '標準'],
+        ['首個字的時間', ttft === null ? '無' : Math.round(ttft) + ' 毫秒'],
+        ['總時間', Math.round(performance.now() - t0) + ' 毫秒'],
+        ['token 數', usage ? `輸入 ${usage.prompt_tokens}，輸出 ${usage.completion_tokens}` : '無'],
+        ['請求編號', res.headers.get('x-maas-request-id') ?? ''],
+      ]);
+      await refresh();
+    } catch (e) { $('out').textContent = '連線失敗：' + e.message; }
+    finally { $('btnSend').disabled = false; }
+  };
+
+  async function refresh() {
+    const res = await api('/portal/v1/me');
+    if (!res.ok) return;
+    const j = await res.json();
+    rows($('usage'), [
+      ['帳號', `${j.name}（${j.tenantId}）`],
+      ['餘額', usd(j.balanceUsd)],
+      ['已使用', usd(j.spentUsd)],
+      ['今日請求', `${j.today.requests} 次，成功 ${j.today.ok} 次`],
+      ['今日 token', `輸入 ${j.today.promptTokens}，輸出 ${j.today.completionTokens}`],
+      ['限流', `每分鐘 ${j.limits.tpm} token（目前已用 ${j.limits.tpmUsed}）、${j.limits.rpm} 次請求`],
+      ['金鑰', j.keys.map((k) => `${k.prefix}…（${k.keyId}）`).join('、')],
+    ]);
+  }
+  $('btnRefresh').onclick = refresh;
+</script>
+</body>
+</html>

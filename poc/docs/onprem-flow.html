@@ -1,0 +1,314 @@
+<title>地端 GPU 串接流程</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one reading column; each flow is a sequence chart with one lifeline per actor; actor colour is the only colour that carries meaning. */
+  :root {
+    --bg: #f4f6f8; --surface: #ffffff; --ink: #17202b; --muted: #5a6675; --line: #d6dce4; --rail: #c3cbd6;
+    --platform: #0b6aa8; --platform-bg: #e3f0f9;
+    --onprem: #a85a00; --onprem-bg: #fbeedb;
+    --customer: #6b3fb0; --customer-bg: #efe8fa;
+    --admin: #2f6b4a; --admin-bg: #e3f2e9;
+    --ok: #17703f; --code-bg: #edf0f4;
+    --sans: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+    --mono: "JetBrains Mono", Consolas, "Cascadia Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161c; --surface: #1a2029; --ink: #e6eaf0; --muted: #9aa6b6; --line: #303947; --rail: #3d4858;
+      --platform: #6cb8ea; --platform-bg: #17303f;
+      --onprem: #f0b060; --onprem-bg: #3a2c16;
+      --customer: #b99cf0; --customer-bg: #2b2340;
+      --admin: #7fcb9f; --admin-bg: #1b3327;
+      --ok: #6bd49a; --code-bg: #232b36; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12161c; --surface: #1a2029; --ink: #e6eaf0; --muted: #9aa6b6; --line: #303947; --rail: #3d4858;
+    --platform: #6cb8ea; --platform-bg: #17303f;
+    --onprem: #f0b060; --onprem-bg: #3a2c16;
+    --customer: #b99cf0; --customer-bg: #2b2340;
+    --admin: #7fcb9f; --admin-bg: #1b3327;
+    --ok: #6bd49a; --code-bg: #232b36; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font: 400 15px/1.7 var(--sans); padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .page { max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+  h1 { font-size: 28px; line-height: 1.3; margin: 0; font-weight: 700; text-wrap: balance; }
+  h2 { font-size: 19px; line-height: 1.4; margin: 0 0 6px; font-weight: 700; }
+  h3 { font-size: 15px; margin: 0 0 6px; font-weight: 700; }
+  p { margin: 0; max-width: 62ch; }
+  .lead { color: var(--muted); margin-top: 8px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 22px; min-width: 0; }
+  .scroll { overflow-x: auto; margin-top: 16px; }
+  code, .mono { font-family: var(--mono); font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+
+  /* topology */
+  .topo { min-width: 700px; }
+  .topo text { font-family: var(--sans); fill: var(--ink); }
+  .topo .small { font-size: 12px; fill: var(--muted); }
+  .topo .lbl { font-size: 12.5px; }
+  .topo .zone { font-size: 13px; font-weight: 700; }
+
+  /* sequence chart */
+  .seq { min-width: 660px; display: grid; grid-template-columns: repeat(4, 1fr); row-gap: 0; position: relative; }
+  .actor { text-align: center; padding: 8px 6px; border-radius: 6px; font-weight: 500; font-size: 14px; margin: 0 8px 6px; line-height: 1.35; }
+  .a-admin { background: var(--admin-bg); color: var(--admin); }
+  .a-platform { background: var(--platform-bg); color: var(--platform); }
+  .a-onprem { background: var(--onprem-bg); color: var(--onprem); }
+  .a-customer { background: var(--customer-bg); color: var(--customer); }
+  .rails { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); background-image: linear-gradient(var(--rail), var(--rail)), linear-gradient(var(--rail), var(--rail)), linear-gradient(var(--rail), var(--rail)), linear-gradient(var(--rail), var(--rail)); background-size: 2px 100%; background-repeat: no-repeat; background-position: 12.5% 0, 37.5% 0, 62.5% 0, 87.5% 0; padding: 6px 0 10px; }
+  .msg { padding: 9px 0 3px; min-width: 0; }
+  .msg .txt { text-align: center; font-size: 13.5px; line-height: 1.45; padding: 0 14px; background: var(--surface); width: fit-content; max-width: calc(100% - 28px); margin: 0 auto 4px; border-radius: 4px; }
+  .seq .n { display: inline-grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; background: var(--ink); color: var(--surface); font-size: 11px; font-weight: 700; margin-right: 6px; vertical-align: 1px; font-variant-numeric: tabular-nums; }
+  .msg .arrow { height: 2px; background: var(--ink); position: relative; margin-inline: var(--pad); }
+  .msg.dash .arrow { background: repeating-linear-gradient(90deg, var(--muted) 0 6px, transparent 6px 11px); }
+  .msg .arrow::after { content: ""; position: absolute; top: -5px; border: 6px solid transparent; }
+  .msg.r .arrow::after { right: -1px; border-left-color: var(--ink); border-right-width: 0; }
+  .msg.l .arrow::after { left: -1px; border-right-color: var(--ink); border-left-width: 0; }
+  .msg.dash.r .arrow::after { border-left-color: var(--muted); }
+  .msg.dash.l .arrow::after { border-right-color: var(--muted); }
+  .self { padding: 9px 0 3px; }
+  .self .txt { text-align: center; font-size: 13.5px; line-height: 1.45; margin: 0 10px; padding: 5px 8px; border: 1.5px solid var(--ink); border-radius: 6px; background: var(--surface); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); margin-top: 12px; }
+  .legend i { display: inline-block; width: 26px; height: 2px; vertical-align: middle; margin-right: 6px; background: var(--ink); }
+  .legend i.d { background: repeating-linear-gradient(90deg, var(--muted) 0 6px, transparent 6px 11px); }
+
+  /* results */
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 20px; margin-top: 16px; }
+  .fact b { display: block; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
+  .fact span { color: var(--muted); font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 560px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  td.id { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+  td.ok { color: var(--ok); white-space: nowrap; font-weight: 500; }
+  pre { background: var(--code-bg); border-radius: 6px; padding: 12px 14px; margin: 12px 0 0; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.6; }
+  ul { margin: 10px 0 0; padding-left: 20px; max-width: 66ch; }
+  li + li { margin-top: 6px; }
+  .gpu { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-top: 16px; }
+  .gpu-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .gpu-head span { color: var(--muted); font-size: 13px; }
+  .vbar { display: flex; height: 44px; border-radius: 6px; overflow: hidden; margin-top: 10px; border: 1px solid var(--line); }
+  .vseg { display: grid; place-items: center; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; color: var(--surface); min-width: 0; }
+  .v-reserve { background: repeating-linear-gradient(135deg, var(--rail) 0 6px, transparent 6px 12px); color: var(--muted); }
+  .v-a { background: var(--platform); } .v-b { background: var(--onprem); }
+  .v-free { background: var(--code-bg); color: var(--muted); }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+</style>
+
+<div class="page">
+  <header>
+    <h1>MaaS 怎麼接到機房的 GPU 機器，客戶怎麼啟用模型</h1>
+    <p class="lead">先加入機房，再讓客戶自己選機房與模型，平台才在顯示卡上切出一塊。整個流程已在一台 12 GB 顯示卡的電腦上，用最小的模型 gemma3:270m 實際跑過。下面的數字是實測值。</p>
+  </header>
+
+  <section class="panel">
+    <h2>全貌</h2>
+    <p>平台與機房之間有兩條線。控制通道由 Agent 主動連出來，負責註冊與同步狀態。推論流量由閘道送往推論引擎。切片直接切在 GPU 主機上，不需要先建虛擬機。</p>
+    <div class="scroll">
+      <svg class="topo" viewBox="0 0 880 330" role="img" aria-label="客戶、MaaS 平台與地端 GPU 機器之間的連線">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--ink)"/></marker>
+          <marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
+        </defs>
+        <!-- zones -->
+        <rect x="10" y="40" width="170" height="270" rx="8" fill="var(--customer-bg)" stroke="var(--customer)" stroke-width="1.5"/>
+        <text x="24" y="64" class="zone" style="fill:var(--customer)">客戶</text>
+        <rect x="270" y="40" width="250" height="270" rx="8" fill="var(--platform-bg)" stroke="var(--platform)" stroke-width="1.5"/>
+        <text x="284" y="64" class="zone" style="fill:var(--platform)">MaaS 平台</text>
+        <rect x="620" y="40" width="250" height="270" rx="8" fill="var(--onprem-bg)" stroke="var(--onprem)" stroke-width="1.5"/>
+        <text x="634" y="64" class="zone" style="fill:var(--onprem)">機房裡的 GPU 主機</text>
+        <!-- nodes -->
+        <g>
+          <rect x="26" y="84" width="138" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="95" y="111" text-anchor="middle" class="lbl">客戶入口</text>
+          <rect x="26" y="196" width="138" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="95" y="223" text-anchor="middle" class="lbl">客戶的應用程式</text>
+          <rect x="290" y="84" width="210" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="395" y="111" text-anchor="middle" class="lbl">控制平面：機房、切片、帳號</text>
+          <rect x="290" y="196" width="210" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="395" y="223" text-anchor="middle" class="lbl">API 閘道：驗證、限流、記帳</text>
+          <rect x="290" y="258" width="210" height="36" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="395" y="281" text-anchor="middle" class="lbl">用量帳本（不存內容）</text>
+          <rect x="640" y="84" width="210" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="745" y="111" text-anchor="middle" class="lbl">Agent</text>
+          <rect x="640" y="196" width="210" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="745" y="223" text-anchor="middle" class="lbl">推論引擎與模型權重</text>
+          <rect x="640" y="258" width="210" height="36" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="745" y="281" text-anchor="middle" class="lbl">GPU 切片</text>
+        </g>
+        <!-- edges -->
+        <line x1="164" y1="106" x2="288" y2="106" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ah)"/>
+        <text x="226" y="98" text-anchor="middle" class="small">選機房與模型</text>
+        <line x1="164" y1="218" x2="288" y2="218" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ah)"/>
+        <text x="226" y="210" text-anchor="middle" class="small">/v1 API</text>
+        <line x1="640" y1="98" x2="502" y2="98" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ah)"/>
+        <text x="570" y="90" text-anchor="middle" class="small">註冊、心跳</text>
+        <line x1="500" y1="116" x2="638" y2="116" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="6 5" marker-end="url(#ahm)"/>
+        <text x="570" y="134" text-anchor="middle" class="small">該有哪些切片</text>
+        <line x1="500" y1="218" x2="638" y2="218" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ah)"/>
+        <text x="570" y="210" text-anchor="middle" class="small">推論請求</text>
+        <line x1="745" y1="128" x2="745" y2="194" stroke="var(--ink)" stroke-width="1.6" marker-end="url(#ah)"/>
+        <text x="755" y="166" class="small">載入與驗證</text>
+        <line x1="395" y1="128" x2="395" y2="194" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="6 5" marker-end="url(#ahm)"/>
+        <text x="405" y="166" class="small">哪些切片可用</text>
+        <text x="570" y="26" text-anchor="middle" class="small">控制通道：GPU 機器主動連出</text>
+        <text x="570" y="238" text-anchor="middle" class="small">走私有網路</text>
+      </svg>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>一、加入機房，接上機房裡的 GPU 機器</h2>
+    <p>管理者先建立機房並取得一次性的註冊權杖。機器屬於哪個機房由權杖決定，不是機器自己宣稱。</p>
+    <div class="scroll"><div class="seq" id="seq1"></div></div>
+    <div class="legend"><span><i></i>主動發出的呼叫</span><span><i class="d"></i>回覆，或系統以外的人工交付</span></div>
+  </section>
+
+  <section class="panel">
+    <h2>二、客戶啟用，自己選機房與模型</h2>
+    <p>客戶拿到金鑰後選機房與模型。這時控制平面才從那個機房空閒的 VRAM 切出一塊，Agent 載入並量測後就緒。</p>
+    <div class="scroll"><div class="seq" id="seq2"></div></div>
+  </section>
+
+  <section class="panel">
+    <h2>三、切割後的拓樸</h2>
+    <p>這是實測時管理者拓樸頁上的一張顯示卡。兩個客戶各啟用了一個模型，橫條的寬度依記憶體大小等比例。</p>
+    <div class="gpu">
+      <div class="gpu-head"><b>台北內湖一號機房</b><span>tw-taipei-1｜poc-laptop-01｜RTX 4080 Laptop 12,282 MiB｜記憶體預算</span></div>
+      <div class="vbar" role="img" aria-label="系統保留 1536 MiB，gemma-3-270m 1024 MiB，llama-3.2-3b 3584 MiB，空閒 6138 MiB">
+        <div class="vseg v-reserve" style="flex:1536 0 0">保留</div>
+        <div class="vseg v-a" style="flex:1024 0 0">270m</div>
+        <div class="vseg v-b" style="flex:3584 0 0">llama-3.2-3b</div>
+        <div class="vseg v-free" style="flex:6138 0 0">空閒 6,138 MiB</div>
+      </div>
+      <div class="scroll" style="margin-top:8px">
+        <table>
+          <thead><tr><th>切片</th><th>模型</th><th>預算</th><th>實測占用</th><th>使用的客戶</th></tr></thead>
+          <tbody>
+            <tr><td><i class="sw v-a"></i>sl-5c121f</td><td>gemma-3-270m</td><td>1,024 MiB</td><td>505 MiB</td><td>Acme Demo</td></tr>
+            <tr><td><i class="sw v-b"></i>sl-8f2f15</td><td>llama-3.2-3b</td><td>3,584 MiB</td><td>2,640 MiB</td><td>Browser Demo</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <ul>
+      <li>同一個機房、同一個模型只切一塊。第二個客戶啟用同一個模型時共用現有切片，不多佔 VRAM。</li>
+      <li>客戶只能呼叫自己啟用過的切片。</li>
+      <li>空閒的 VRAM 不夠時直接拒絕，並說明需要多少、還剩多少。</li>
+      <li>最後一個客戶停用後，切片移除，VRAM 釋放。</li>
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>實測結果</h2>
+    <p>2026 年 11 月 17 日，RTX 4080 Laptop 12 GB，推論引擎 Ollama，模型 gemma3:270m 與 llama3.2。</p>
+    <div class="facts">
+      <div class="fact"><b>27／27</b><span>項檢查通過</span></div>
+      <div class="fact"><b>8 秒</b><span>客戶按下啟用到切片就緒</span></div>
+      <div class="fact"><b>507 MiB</b><span>最小模型實際占用的 VRAM，切出 1,024 MiB</span></div>
+      <div class="fact"><b>0 MiB</b><span>第二個客戶啟用同一個模型多佔的 VRAM</span></div>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>編號</th><th>檢查項目</th><th>結果</th><th>實測</th></tr></thead>
+        <tbody id="checks"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="two">
+    <div class="panel">
+      <h3>自己跑一次</h3>
+      <p>需要 NVIDIA 顯示卡、Ollama 與 Node.js 20 以上。</p>
+<pre>ollama pull gemma3:270m
+cd poc
+node quickstart.mjs</pre>
+      <p style="margin-top:12px">跑完後畫面會印出管理者的拓樸頁、客戶頁的網址與一組啟用碼。兩頁並排開著，在客戶頁選機房與模型按啟用，拓樸頁會即時多出一塊切片。</p>
+    </div>
+    <div class="panel">
+      <h3>與正式環境不同的地方</h3>
+      <ul>
+        <li>驗證時閘道與 GPU 在同一台電腦，而且只有一台機器。正式環境的推論流量要走專線或站對站 VPN，或由 Agent 維持對外的反向通道。</li>
+        <li>切片是記憶體預算，不是硬體隔離。機房等級的顯示卡可以改用 MIG 在硬體層切開。</li>
+        <li>啟用碼與註冊權杖在這裡直接顯示在畫面上。正式環境寄給對方的管理員，並搭配登入與多因子驗證。</li>
+        <li>gemma3:270m 只用來證明流程走得通，回答品質不足以商用。</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+  // cols: 1..4. Each step: [from, to, text, dashed?]; from === to draws a note on that lifeline.
+  const flows = {
+    seq1: {
+      actors: [['admin', '管理者'], ['platform', '控制平面與閘道'], ['onprem', 'Agent'], ['onprem', '推論引擎與 GPU']],
+      steps: [
+        [1, 2, '加入機房：名稱、區域、位置'],
+        [2, 1, '一次性註冊權杖', true],
+        [1, 3, '在機房的 GPU 主機上帶著權杖啟動 Agent', true],
+        [3, 2, '註冊：權杖決定這台機器屬於哪個機房'],
+        [3, 2, '心跳：顯示卡盤點與切片的實際狀態，每 2 秒'],
+        [2, 3, '期望狀態：這台機器該有哪些切片', true],
+        [2, 2, '拓樸出現這台機器，還沒有切片'],
+      ],
+    },
+    seq2: {
+      actors: [['customer', '客戶'], ['platform', '控制平面與閘道'], ['onprem', 'Agent'], ['onprem', '推論引擎與 GPU']],
+      steps: [
+        [1, 2, '輸入管理者給的啟用碼'],
+        [2, 1, 'API 金鑰，只顯示一次', true],
+        [1, 2, '選機房與模型，按啟用'],
+        [2, 2, '在那個機房找空閒夠的機器，切出一塊'],
+        [2, 3, '心跳的回覆帶著新的切片', true],
+        [3, 4, '載入模型，量測實際占用的 VRAM'],
+        [3, 2, '回報切片就緒'],
+        [1, 2, 'POST /v1/chat/completions'],
+        [2, 4, '驗金鑰、額度與限流後，轉送到這個客戶的切片'],
+        [4, 2, '回覆', true],
+        [2, 1, '回覆，並記帳扣款', true],
+      ],
+    },
+  };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  for (const [id, f] of Object.entries(flows)) {
+    const root = document.getElementById(id);
+    f.actors.forEach(([kind, name]) => root.append(el('div', 'actor a-' + kind, name)));
+    const rails = el('div', 'rails');
+    f.steps.forEach(([from, to, text, dashed], i) => {
+      const num = el('span', 'n', String(i + 1));
+      if (from === to) {
+        const box = el('div', 'self');
+        box.style.gridColumn = String(from);
+        const t = el('div', 'txt'); t.append(num, text); box.append(t); rails.append(box);
+        return;
+      }
+      const a = Math.min(from, to), b = Math.max(from, to), span = b - a + 1;
+      const m = el('div', 'msg ' + (to > from ? 'r' : 'l') + (dashed ? ' dash' : ''));
+      m.style.gridColumn = a + ' / ' + (b + 1);
+      m.style.setProperty('--pad', 'calc(100% / ' + span + ' / 2)');
+      const t = el('div', 'txt'); t.append(num, text);
+      m.append(t, el('div', 'arrow'));
+      rails.append(m);
+    });
+    root.append(rails);
+  }
+  const checks = [
+    ['S04', '管理者加入機房，取得一次性註冊權杖', 'tw-taipei-1，台北市內湖區'],
+    ['S05', '沒有註冊權杖的機器無法加入', 'HTTP 401'],
+    ['S07', 'Agent 用權杖註冊，歸屬到這個機房', '機房由權杖決定'],
+    ['S09', '註冊權杖只能用一次', 'HTTP 401'],
+    ['C04', '還沒啟用模型之前不能呼叫', 'HTTP 503'],
+    ['C06', '客戶選機房與模型，控制平面切出一塊', '1,024 MiB'],
+    ['C07', 'Agent 載入模型並驗證在預算內', '8 秒就緒，507／1,024 MiB'],
+    ['C08', '拓樸上看得到切片與使用它的客戶', '機房 → 機器 → 切片 → 客戶'],
+    ['C09', '請求送到剛切出的切片並得到回覆', '輸入 20、輸出 18 token'],
+    ['C11', '沒有啟用的客戶不能用別人切片上的模型', 'HTTP 503'],
+    ['C12', '第二個客戶啟用同一個模型，共用現有切片', '沒有多佔 VRAM'],
+    ['C13', '啟用另一個模型，同一張卡切出第二塊', '2,640／3,584 MiB，第一塊持續就緒'],
+    ['C14', '剩餘 VRAM 不夠時啟用被拒絕', 'HTTP 409，需要 10,496、剩 6,138 MiB'],
+    ['C15', '客戶停用模型，切片歸還', '空閒回到 9,722 MiB'],
+    ['C16', '共用的切片還有客戶在用就不會被收回', '另一個客戶呼叫 HTTP 200'],
+  ];
+  const tb = document.getElementById('checks');
+  for (const [id, label, detail] of checks) {
+    const tr = el('tr');
+    tr.append(el('td', 'id', id), el('td', '', label), el('td', 'ok', '通過'), el('td', '', detail));
+    tb.append(tr);
+  }
+</script>

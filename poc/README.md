@@ -4,6 +4,120 @@
 
 所有程式都是零相依的 Node.js 腳本（Node 20 以上）。推論引擎用 Ollama。所有持久化資料都寫在 D 槽。
 
+## 0. 最快的走法：一個指令跑完整個流程
+
+用目錄裡最小的模型 `gemma3:270m`（約 290 MB，VRAM 約 0.5 GB），一次走完三件事：加入機房並接上機房裡的 GPU 機器、客戶啟用、客戶自己選機房與模型後由平台切割顯示卡。
+
+```bash
+ollama pull gemma3:270m      # 只需要做一次
+cd poc
+node quickstart.mjs          # 跑完 27 項檢查後繼續提供服務，可用瀏覽器操作
+node quickstart.mjs --once   # 跑完就結束，並釋放 GPU 記憶體
+```
+
+加上 `--fresh` 會先刪除控制平面的狀態檔，從空白開始。
+
+不加 `--once` 時，腳本最後會印出兩個網址與一組啟用碼：
+
+| 頁面 | 網址 | 給誰用 |
+|---|---|---|
+| 機房與切割拓樸 | `http://127.0.0.1:8787/topology#<管理者金鑰>` | 管理者：加入機房、開客戶帳號、看每張顯示卡怎麼切 |
+| 客戶啟用 | `http://127.0.0.1:8787/portal` | 客戶：輸入啟用碼、拿金鑰、選機房與模型、試打、看用量 |
+
+兩頁並排開著。在啟用頁選機房與模型按「啟用」，拓樸頁會在幾秒內多出一塊切片。按 Ctrl+C 結束。
+
+報告寫在 `<儲存根目錄>/reports/quickstart-latest.md`。
+
+### 完整流程
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as 管理者
+    actor Cust as 客戶
+    participant CP as 控制平面與 API 閘道
+    participant Agent as Agent（機房裡的 GPU 機器）
+    participant RT as 推論引擎與 GPU
+    Admin->>CP: 加入機房：名稱、區域、位置
+    CP-->>Admin: 一次性註冊權杖
+    Admin-->>Agent: 在機房的 GPU 機器上帶著權杖啟動 Agent
+    Agent->>CP: 註冊：權杖決定這台機器屬於哪個機房
+    loop 每 2 秒
+        Agent->>CP: 心跳：顯示卡盤點與切片的實際狀態
+        CP-->>Agent: 期望狀態：這台機器該有哪些切片
+    end
+    Admin->>CP: 開客戶帳號：額度、限流、可用模型
+    CP-->>Admin: 一次性啟用碼
+    Admin-->>Cust: 交付啟用碼
+    Cust->>CP: 輸入啟用碼
+    CP-->>Cust: API 金鑰（只顯示一次）
+    Cust->>CP: 選機房與模型，按啟用
+    CP->>CP: 找那個機房裡空閒 VRAM 夠的機器，切出一塊
+    Agent->>RT: 載入模型，量測實際占用的 VRAM
+    Agent->>CP: 回報切片就緒
+    Cust->>CP: POST /v1/chat/completions
+    CP->>RT: 驗金鑰、額度與限流後，轉送到這個客戶的切片
+    RT-->>CP: 回覆
+    CP-->>Cust: 回覆，並記帳扣款
+```
+
+### 切割的規則
+
+- **隨需切割**：切割模式設為 `on-demand` 時不預先切好。客戶啟用模型時，控制平面才從空閒的 VRAM 切出一塊。每個模型需要多大，寫在 `poc.config.json` 的 `models.*.sliceMiB`。
+- **同一個機房、同一個模型只切一塊**：第二個客戶啟用同一個模型時共用現有的切片，不重複佔用 VRAM。
+- **客戶只能用自己啟用過的切片**：能不能用是控制平面依自己的紀錄判斷，不看 Agent 回報的內容。
+- **容量不夠就拒絕**：回覆 `409 NO_CAPACITY`，並說明需要多少、最大的空閒區塊多少。
+- **沒人用就歸還**：最後一個客戶停用後，切片移除，Agent 卸載模型，VRAM 釋放。
+- **機房由權杖決定**：機器屬於哪個機房，取決於管理者發的註冊權杖，不是機器自己宣稱。權杖只能用一次。同一張顯示卡重新註冊時沿用原本的節點紀錄。
+
+也可以不用客戶觸發，由管理者指定固定的切法，見第 5 節與 `node slice.mjs`。
+
+### 切割是直接切主機，不需要先建虛擬機
+
+Agent 與推論引擎直接跑在 GPU 主機的作業系統上（正式環境通常是裸機上的容器）。切片是主機上的一個推論引擎行程加上一份 VRAM 額度。
+
+用 MIG 做硬體切割時也是直接在主機上切，切出來的每一塊再指派給一個容器。只有要把整台機器租給客戶自己管理時，才需要虛擬機與 vGPU 授權，那是另一種產品。
+
+### 相關的 API
+
+| 誰呼叫 | API | 用途 |
+|---|---|---|
+| 管理者 | `POST /admin/v1/sites` | 加入機房，回傳一次性註冊權杖。對既有機房呼叫會重發權杖 |
+| 管理者 | `POST /admin/v1/profile` | 設定切割模式：`on-demand` 或固定配置 |
+| 管理者 | `POST /admin/v1/tenants` | 開客戶帳號，回傳一次性啟用碼 |
+| 管理者 | `GET /admin/v1/topology` | 機房、機器、顯示卡、切片、客戶與最近事件 |
+| 管理者 | `POST /admin/v1/slices/clear` | 清空所有隨需切片 |
+| Agent | `POST /agent/v1/enroll` | 用註冊權杖換節點身分 |
+| Agent | `POST /agent/v1/heartbeat` | 回報實際狀態，取得期望狀態 |
+| 客戶 | `POST /portal/v1/activate` | 用啟用碼啟用帳號，取得第一把金鑰 |
+| 客戶 | `GET /portal/v1/sites` | 可用的機房與剩餘容量 |
+| 客戶 | `POST /portal/v1/deployments` | 在指定機房啟用模型 |
+| 客戶 | `GET /portal/v1/deployments`、`POST /portal/v1/deployments/remove` | 查看與停用已啟用的模型 |
+| 客戶 | `GET /portal/v1/me` | 查看餘額、限流、金鑰與今日用量 |
+| 客戶 | `POST /portal/v1/keys`、`POST /portal/v1/keys/revoke` | 加開與撤銷金鑰 |
+| 客戶 | `GET /v1/models`、`POST /v1/chat/completions` | OpenAI 相容的推論 API |
+
+### 快速驗證的實測結果（2026-11-17）
+
+27 項檢查全部通過，RTX 4080 Laptop 12 GB。
+
+| 動作 | 實測 |
+|---|---|
+| 客戶啟用 `gemma-3-270m` | 切出 1,024 MiB，8 秒後就緒，實測占用 507 MiB |
+| 第二個客戶啟用同一個模型 | 共用同一塊切片，VRAM 沒有增加 |
+| 再啟用 `llama-3.2-3b` | 同一張卡切出第二塊 3,584 MiB，實測 2,640 MiB，第一塊持續就緒 |
+| 剩 6,138 MiB 時要求 10,496 MiB 的模型 | 拒絕，`409 NO_CAPACITY` |
+| 停用 `llama-3.2-3b` | 切片移除，空閒回到 9,722 MiB |
+
+### 與正式環境不同的地方
+
+- POC 的閘道與 GPU 機器是同一台電腦，閘道直接連本機的推論引擎。正式環境的 GPU 機器在機房的網路裡，推論流量要走私有網路（專線或站對站 VPN），或由 Agent 維持一條對外的反向通道。Agent 的註冊與心跳本來就是對外連線。
+- POC 只有一台 GPU 機器。機房可以建很多個，但只有一個有機器。多台機器之間的挑選邏輯（選空閒最多的那台）有寫，沒有用兩台實機驗證過。
+- 推論引擎是 Ollama，同一個模型只能載入一份，所以同模型共用一塊切片。正式環境用 vLLM 時，同一個模型可以開多個副本。
+- 切片是記憶體預算，不是硬體隔離。同一張卡上的切片同時忙碌時會互相拖慢。
+- 啟用碼與註冊權杖在 POC 裡直接顯示在畫面上。正式環境寄給對方的管理員，並搭配登入與多因子驗證。拓樸頁的管理者金鑰放在網址裡，也只適合本機示範。
+- `gemma3:270m` 只用來證明流程走得通，回答品質不足以商用。
+
 ## 1. 先決條件
 
 | 項目 | 這台電腦的現況 |
@@ -13,7 +127,7 @@
 | 模型權重 | `D:\ollama\models`（環境變數 `OLLAMA_MODELS`） |
 | Node.js | 20 以上（實測用 22.15） |
 
-POC 使用三個已下載的模型：`gemma3:4b`、`llama3.2:latest`、`hf.co/audreyt/Gemma-3-TAIDE-12b-Chat-2602-GGUF:Q4_K_M`。缺少時用 `ollama pull <名稱>` 補上。
+完整驗收（第 2 節）使用三個已下載的模型：`gemma3:4b`、`llama3.2:latest`、`hf.co/audreyt/Gemma-3-TAIDE-12b-Chat-2602-GGUF:Q4_K_M`。缺少時用 `ollama pull <名稱>` 補上。
 
 ## 2. 執行
 
@@ -46,8 +160,12 @@ node export-snapshot.mjs          # 寫入 ../src/data/localGpuPoc.snapshot.json
 | 檔案 | 角色 |
 |---|---|
 | `poc.config.json` | 儲存位置、切片設定檔、模型對照與單價、測試租戶 |
-| `gateway.mjs` | 控制面與資料面：節點註冊與心跳、期望狀態、`/v1/models`、`/v1/chat/completions`、金鑰、目錄白名單、TPM 限流、預付餘額、帳本 |
+| `gateway.mjs` | 控制面與資料面：節點註冊與心跳、期望狀態、`/v1/models`、`/v1/chat/completions`、開戶與啟用碼、金鑰、目錄白名單、TPM 限流、預付餘額、帳本 |
 | `agent.mjs` | 節點代理：盤點 GPU、註冊、心跳、准入控制、載入與卸載模型、量測 VRAM |
+| `quickstart.mjs` | 一個指令走完加入機房、接上 GPU 機器、客戶啟用與隨需切割，27 項檢查，輸出報告 |
+| `portal.html` | 客戶頁：啟用、金鑰、選機房與模型、試打、用量，由閘道在 `/portal` 提供 |
+| `topology.html` | 管理者頁：加入機房、開客戶帳號、即時的切割拓樸，由閘道在 `/topology` 提供 |
+| `slice.mjs` | 手動套用固定的切法並查看結果：`list`、`apply <配置>`、`status`、`stop` |
 | `bench.mjs` | 驗收檢查與吞吐量測試，輸出 JSON 與 Markdown 報告 |
 | `export-snapshot.mjs` | 把最新報告精簡後交給示範網站 |
 | `lib.mjs` | 共用工具：設定、儲存目錄、原子寫檔、記錄 |

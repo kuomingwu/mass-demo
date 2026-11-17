@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MaaS 管理後台：機房與切割拓樸</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --ink: #17202b; --muted: #5a6675; --line: #d6dce4; --code-bg: #edf0f4;
+    --accent: #0b6aa8; --accent-ink: #ffffff; --ok: #17703f; --warn: #9a5b00; --bad: #b3261e;
+    --reserve: #c9d0da; --free: #e9edf2;
+    --s1: #2f7fc1; --s2: #c2702a; --s3: #6b4fb8; --s4: #2f8a5e; --s5: #b0447a; --s6: #5f7a1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12161c; --card: #1a2029; --ink: #e6eaf0; --muted: #9aa6b6; --line: #303947; --code-bg: #232b36;
+      --accent: #6cb8ea; --accent-ink: #0b1220; --ok: #6bd49a; --warn: #f0b060; --bad: #ff8a80; --reserve: #3d4858; --free: #262e3a;
+      --s1: #4f9bd8; --s2: #d98c4a; --s3: #9079da; --s4: #54b083; --s5: #d06a9c; --s6: #8ba63c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.6 "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 16px 60px; display: flex; flex-direction: column; gap: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  h3 { font-size: 14px; margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input { flex: 1 1 130px; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+  button { padding: 7px 14px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  pre { background: var(--code-bg); border-radius: 6px; padding: 9px 11px; margin: 8px 0 0; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font: 12.5px/1.55 Consolas, "Cascadia Mono", monospace; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  .msg { font-size: 13px; margin: 8px 0 0; } .msg.bad { color: var(--bad); } .msg.ok { color: var(--ok); }
+  .site { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-top: 12px; }
+  .site-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .node { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .node-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--bad); }
+  .dot.on { background: var(--ok); }
+  .bar { display: flex; height: 46px; border-radius: 6px; overflow: hidden; margin-top: 10px; border: 1px solid var(--line); background: var(--free); }
+  .seg { min-width: 2px; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 600; overflow: hidden; white-space: nowrap; padding: 0 4px; transition: flex-grow .5s; }
+  .seg.reserve { background: repeating-linear-gradient(135deg, var(--reserve) 0 6px, transparent 6px 12px); color: var(--muted); }
+  .seg.free { background: transparent; color: var(--muted); font-weight: 400; }
+  .seg.pending { opacity: .55; }
+  .scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; min-width: 620px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; margin: 0 4px 3px 0; white-space: nowrap; }
+  .st { font-weight: 600; white-space: nowrap; } .st.ready { color: var(--ok); } .st.wait { color: var(--warn); } .st.bad { color: var(--bad); }
+  .empty { color: var(--muted); margin: 10px 0 0; }
+  ul.events { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+  ul.events li { padding: 5px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; }
+  ul.events time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>機房與切割拓樸</h1>
+    <span class="meta" id="status">尚未連線</span>
+  </header>
+
+  <section class="card" id="login">
+    <h2>管理者金鑰</h2>
+    <p class="hint">貼上管理者金鑰。金鑰在儲存根目錄的 <code>state/poc-keys.local.json</code>，<code>quickstart.mjs</code> 也會印出帶金鑰的網址。</p>
+    <div class="row"><input id="adminKey" placeholder="maas_admin_..." autocomplete="off"><button id="btnLogin">連線</button></div>
+    <p class="msg bad" id="loginMsg"></p>
+  </section>
+
+  <div id="app" hidden>
+    <div class="cols">
+      <section class="card">
+        <h2>1. 加入機房</h2>
+        <p class="hint">建立機房後會得到一次性的註冊權杖。在那個機房的 GPU 機器上帶著權杖啟動 Agent，機器就會出現在下面的拓樸。</p>
+        <div class="row">
+          <input id="siteName" placeholder="機房名稱，例如 台北內湖一號">
+          <input id="siteRegion" placeholder="區域，例如 tw-north">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input id="siteLocation" placeholder="位置，例如 台北市內湖區">
+          <button id="btnSite">加入機房</button>
+        </div>
+        <pre id="siteOut" hidden></pre>
+      </section>
+      <section class="card">
+        <h2>2. 開客戶帳號</h2>
+        <p class="hint">開好帳號會得到一次性的啟用碼。客戶在啟用頁輸入後取得金鑰，再自己選機房與模型。</p>
+        <div class="row">
+          <input id="tenantName" placeholder="客戶名稱">
+          <input id="tenantCredit" placeholder="試用額度 US$" value="1" inputmode="decimal" style="flex:0 1 120px">
+          <button id="btnTenant">開帳號</button>
+        </div>
+        <pre id="tenantOut" hidden></pre>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">3. 拓樸</h2>
+        <button id="btnMode" class="ghost" hidden>切換為隨需切割</button>
+      </div>
+      <p class="hint" style="margin-top:6px">每條橫條是一張顯示卡的記憶體。客戶啟用模型時，控制平面從空閒的部分切出一塊，Agent 載入並量測後變成就緒。每 2 秒更新一次。</p>
+      <div id="sites"></div>
+    </section>
+
+    <div class="cols" style="margin-top:16px">
+      <section class="card">
+        <h2>客戶</h2>
+        <div class="scroll"><table style="min-width:420px"><thead><tr><th>客戶</th><th>狀態</th><th>已啟用模型</th><th>餘額 US$</th></tr></thead><tbody id="tenants"></tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>最近的事件</h2>
+        <ul class="events" id="events"></ul>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  let key = '';
+  try { key = location.hash.slice(1) || sessionStorage.getItem('maas-poc-admin') || ''; } catch { key = location.hash.slice(1); }
+  const api = (path, body) => fetch(path, { method: body ? 'POST' : 'GET', headers: { authorization: 'Bearer ' + key, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const STATE = { ready: ['就緒', 'ready'], pending: ['等待 Agent 接手', 'wait'], loading: ['載入中', 'wait'], verifying: ['驗證中', 'wait'], 'rejected-no-capacity': ['拒絕：VRAM 不夠', 'bad'], 'over-budget': ['超出預算', 'bad'], 'cpu-offload': ['溢到系統記憶體', 'bad'], 'model-missing': ['缺少模型權重', 'bad'], failed: ['載入失敗', 'bad'], 'not-loaded': ['未載入', 'bad'] };
+  const STRATEGY = { 'vram-budget': '記憶體預算（運算輪流使用）', mig: 'MIG 硬體切割' };
+  const colors = new Map();
+  const colorOf = (sliceId) => { if (!colors.has(sliceId)) colors.set(sliceId, 'var(--s' + ((colors.size % 6) + 1) + ')'); return colors.get(sliceId); };
+  const EVENT = {
+    'site-added': (e) => `加入機房「${e.name}」`,
+    'node-enrolled': (e) => `GPU 機器 ${e.name} 註冊到${e.siteId ? '機房 ' + e.siteId : '平台'}`,
+    'tenant-created': (e) => `開立客戶帳號「${e.tenant}」`,
+    'tenant-activated': (e) => `客戶「${e.tenant}」完成啟用`,
+    'slice-carved': (e) => `客戶「${e.tenant}」在 ${e.siteId} 啟用 ${e.model}，切出 ${e.vramMiB} MiB（${e.sliceId}）`,
+    'slice-shared': (e) => `客戶「${e.tenant}」在 ${e.siteId} 啟用 ${e.model}，共用現有切片 ${e.sliceId}`,
+    'slice-left': (e) => `客戶「${e.tenant}」停用 ${e.model}，切片 ${e.sliceId} 仍有其他客戶使用`,
+    'slice-released': (e) => `切片 ${e.sliceId}（${e.model}）已無人使用，歸還 ${e.vramMiB} MiB`,
+    'slices-cleared': (e) => `管理者清空了 ${e.count} 個切片`,
+    'mode-changed': (e) => `切割模式改為 ${e.mode}`,
+  };
+
+  function nodeView(n) {
+    const box = el('div', 'node');
+    const head = el('div', 'node-head');
+    const name = el('h3'); name.append(el('span', 'dot' + (n.online ? ' on' : '')), n.name + '（' + n.id + '）');
+    head.append(name);
+    if (n.gpu) head.append(el('span', 'meta', `${n.gpu.name}｜${STRATEGY[n.strategy] ?? n.strategy ?? ''}｜${n.runtime ?? ''}｜使用率 ${n.gpu.utilizationPct ?? '-'}%｜${n.gpu.temperatureC ?? '-'}°C`));
+    if (!n.online) head.append(el('span', 'meta', '離線'));
+    box.append(head);
+    if (!n.gpu) { box.append(el('p', 'empty', '還沒有收到這台機器的回報。')); return box; }
+    const total = n.gpu.totalMiB;
+    const bar = el('div', 'bar');
+    const seg = (cls, mib, label, color) => { const s = el('div', 'seg ' + cls, mib / total > 0.07 ? label : ''); s.style.flex = mib + ' 0 0'; if (color) s.style.background = color; s.title = label + '｜' + mib + ' MiB'; bar.append(s); };
+    const live = n.slices.filter((s) => s.state !== 'rejected-no-capacity');
+    seg('reserve', n.gpu.reserveMiB, '系統保留');
+    for (const s of live) seg(s.state === 'ready' ? '' : 'pending', s.budgetMiB, s.model, colorOf(s.id));
+    if (n.freeMiB > 0) seg('free', n.freeMiB, '空閒 ' + n.freeMiB + ' MiB');
+    box.append(bar);
+    const scale = el('div', 'scale'); scale.append(el('span', '', '0'), el('span', '', `已切出 ${live.reduce((a, s) => a + s.budgetMiB, 0)}／可切 ${n.gpu.sliceBudgetMiB} MiB`), el('span', '', total + ' MiB')); box.append(scale);
+    if (!n.slices.length) { box.append(el('p', 'empty', '這張顯示卡還沒有切片。客戶啟用模型後會出現在這裡。')); return box; }
+    const wrap = el('div', 'scroll'); const t = el('table');
+    const hr = el('tr'); ['切片', '模型', '狀態', '預算 MiB', '實測 MiB', '處理中', '使用的客戶'].forEach((h) => hr.append(el('th', '', h)));
+    const thead = el('thead'); thead.append(hr); const tb = el('tbody');
+    for (const s of n.slices) {
+      const tr = el('tr');
+      const c1 = el('td'); const sw = el('span', 'sw'); sw.style.background = colorOf(s.id); c1.append(sw, s.id);
+      const [label, cls] = STATE[s.state] ?? [s.state, 'wait'];
+      const st = el('td'); st.append(el('span', 'st ' + cls, label)); if (s.detail) st.append(el('div', 'meta', s.detail));
+      const who = el('td'); if (s.tenants.length) s.tenants.forEach((x) => who.append(el('span', 'chip', x.name))); else who.textContent = s.sharing === 'dedicated' ? '專屬' : '所有客戶';
+      tr.append(c1, el('td', '', s.model), st, el('td', '', s.budgetMiB), el('td', '', s.measuredMiB ?? '-'), el('td', '', s.inflight), who);
+      tb.append(tr);
+    }
+    t.append(thead, tb); wrap.append(t); box.append(wrap);
+    return box;
+  }
+
+  function render(d) {
+    $('status').textContent = `模式 ${d.mode}｜第 ${d.generation} 版｜更新於 ${new Date(d.now).toLocaleTimeString()}`;
+    $('btnMode').hidden = d.mode === 'on-demand';
+    const sites = $('sites');
+    const groups = d.sites.map((s) => ({ ...s }));
+    if (d.unassigned.length) groups.push({ id: '-', name: '未指定機房', region: '', location: '以舊的全域權杖註冊的機器', nodes: d.unassigned });
+    if (!groups.length) { sites.replaceChildren(el('p', 'empty', '還沒有機房。先在上面加入一個機房。')); }
+    else sites.replaceChildren(...groups.map((s) => {
+      const box = el('div', 'site');
+      const head = el('div', 'site-head');
+      head.append(el('h3', '', s.name), el('span', 'meta', [s.id !== '-' ? s.id : '', s.region, s.location].filter(Boolean).join('｜')));
+      if (s.enrollmentTokenPending) head.append(el('span', 'chip', '註冊權杖尚未使用'));
+      box.append(head);
+      if (!s.nodes.length) box.append(el('p', 'empty', '這個機房還沒有機器加入。用註冊權杖在 GPU 機器上啟動 Agent。'));
+      s.nodes.forEach((n) => box.append(nodeView(n)));
+      return box;
+    }));
+    $('tenants').replaceChildren(...(d.tenants.length ? d.tenants.slice(-8).reverse().map((t) => { const tr = el('tr'); tr.append(el('td', '', t.name), el('td', '', t.status === 'active' ? '已啟用' : '待啟用'), el('td', '', t.deployments), el('td', '', Number(t.balanceUsd).toFixed(6))); return tr; }) : [(() => { const tr = el('tr'); const td = el('td', 'meta', '還沒有客戶。'); td.colSpan = 4; tr.append(td); return tr; })()]));
+    $('events').replaceChildren(...(d.events.length ? d.events.slice(0, 12).map((e) => { const li = el('li'); li.append(el('time', '', new Date(e.ts).toLocaleTimeString()), el('span', '', (EVENT[e.type] ?? (() => e.type))(e))); return li; }) : [el('li', 'meta', '還沒有事件。')]));
+  }
+
+  let timer = null;
+  async function tick() {
+    try {
+      const res = await api('/admin/v1/topology');
+      if (res.status === 401) { clearInterval(timer); $('app').hidden = true; $('login').hidden = false; $('loginMsg').textContent = '金鑰無效。'; return false; }
+      render(await res.json());
+      return true;
+    } catch { $('status').textContent = '連不上閘道'; return false; }
+  }
+  async function connect() {
+    if (!key) return;
+    if (await tick()) {
+      try { sessionStorage.setItem('maas-poc-admin', key); } catch { /* ignore */ }
+      $('login').hidden = true; $('app').hidden = false;
+      clearInterval(timer); timer = setInterval(tick, 2000);
+    }
+  }
+  $('btnLogin').onclick = () => { key = $('adminKey').value.trim(); $('loginMsg').textContent = ''; connect(); };
+  $('btnMode').onclick = async () => { await api('/admin/v1/profile', { profile: 'on-demand' }); tick(); };
+  $('btnSite').onclick = async () => {
+    const res = await api('/admin/v1/sites', { name: $('siteName').value, region: $('siteRegion').value, location: $('siteLocation').value });
+    const j = await res.json(); const out = $('siteOut'); out.hidden = false;
+    out.textContent = res.ok
+      ? `機房 ${j.siteId} 已建立。註冊權杖（一次性，24 小時內有效）：\n${j.enrollmentToken}\n\n在該機房的 GPU 機器上執行（PowerShell）：\n$env:MAAS_BOOTSTRAP_TOKEN='${j.enrollmentToken}'; node agent.mjs\n\n或（bash）：\nMAAS_BOOTSTRAP_TOKEN='${j.enrollmentToken}' node agent.mjs`
+      : `失敗（${res.status} ${j.error.code}）：${j.error.message}`;
+    tick();
+  };
+  $('btnTenant').onclick = async () => {
+    const res = await api('/admin/v1/tenants', { name: $('tenantName').value, creditUsd: Number($('tenantCredit').value) });
+    const j = await res.json(); const out = $('tenantOut'); out.hidden = false;
+    out.textContent = res.ok ? `帳號 ${j.tenantId} 已開立。啟用碼（一次性）：\n${j.activationCode}\n\n請客戶開啟啟用頁：\n${location.origin}/portal` : `失敗（${res.status} ${j.error.code}）：${j.error.message}`;
+    tick();
+  };
+  connect();
+</script>
+</body>
+</html>

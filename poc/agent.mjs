@@ -14,7 +14,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import fs from 'node:fs';
-import { loadConfig, storage, readJson, writeJson, makeLogger, sleep } from './lib.mjs';
+import { loadConfig, storage, readJson, writeJson, makeLogger, sleep, sha256 } from './lib.mjs';
 
 const AGENT_VERSION = '0.1.0-poc';
 const run = promisify(execFile);
@@ -130,6 +130,7 @@ async function reconcile(gpu) {
     // Admission control: slices are admitted in order until the VRAM budget is used up.
     let allocated = 0;
     const next = [];
+    const previous = new Map(actual.map((x) => [x.id, x]));
     for (const s of desired.slices) {
       const baseStatus = { id: s.id, model: s.model, publicId: cfg.models[s.model]?.publicId ?? s.model, sharing: s.sharing, tenantId: s.tenantId ?? null, budgetMiB: s.vramMiB, numCtx: s.numCtx, maxInflight: s.maxInflight, endpoint: RUNTIME };
       if (allocated + s.vramMiB > budget) {
@@ -146,7 +147,9 @@ async function reconcile(gpu) {
           continue;
         }
       }
-      next.push({ ...baseStatus, state: 'loading' });
+      // A slice that is already serving the same model keeps serving while its neighbours are (un)loaded.
+      const was = previous.get(s.id);
+      next.push(was && was.model === s.model && was.state === 'ready' ? { ...was, ...baseStatus, state: 'ready' } : { ...baseStatus, state: 'loading' });
     }
     actual = next;
 
@@ -222,19 +225,23 @@ let measurement = null;
 
 // ---------- 2. enrollment ----------
 async function enroll() {
-  if (identity?.nodeId && identity.gateway === GATEWAY) return;
-  const boot = process.env.MAAS_BOOTSTRAP_TOKEN ?? readJson(path.join(dirs.state, 'poc-keys.local.json'), {}).bootstrap;
+  const given = process.env.MAAS_BOOTSTRAP_TOKEN;
+  // Already enrolled with this control plane: keep the identity, unless the operator handed us a NEW enrollment token.
+  if (identity?.nodeId && identity.gateway === GATEWAY && (!given || identity.bootHash === sha256(given))) return;
+  const boot = given ?? readJson(path.join(dirs.state, 'poc-keys.local.json'), {}).bootstrap;
   if (!boot) throw new Error('no bootstrap token: set MAAS_BOOTSTRAP_TOKEN (or start the gateway first)');
-  const res = await fetch(`${GATEWAY}/agent/v1/enroll`, { method: 'POST', headers: { authorization: `Bearer ${boot}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: cfg.node.name, site: cfg.node.site }) });
+  const res = await fetch(`${GATEWAY}/agent/v1/enroll`, { method: 'POST', headers: { authorization: `Bearer ${boot}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: process.env.MAAS_NODE_NAME ?? cfg.node.name, site: cfg.node.site, gpuUuid: (await gpuInventory())[0]?.uuid }) });
   if (!res.ok) throw new Error(`enroll failed: HTTP ${res.status}`);
   const j = await res.json();
-  identity = { gateway: GATEWAY, nodeId: j.nodeId, nodeToken: j.nodeToken, enrolledAt: new Date().toISOString(), loadedByAgent: [] };
+  // Carry over what this agent already loaded, so a re-enrollment never orphans VRAM.
+  identity = { gateway: GATEWAY, nodeId: j.nodeId, nodeToken: j.nodeToken, bootHash: sha256(boot), enrolledAt: new Date().toISOString(), loadedByAgent: identity?.loadedByAgent ?? [], baselineUsedMiB: identity?.baselineUsedMiB ?? null, loadedUsedMiB: identity?.loadedUsedMiB ?? null };
   persistIdentity();
   log('info', 'enrolled with control plane', { nodeId: identity.nodeId, gateway: GATEWAY });
 }
 
 // ---------- 3. heartbeat loop ----------
 async function tick(partitioning) {
+  if (!identity) await enroll();
   const gpus = await gpuInventory();
   const gpu = gpus[0];
   const runtime = await runtimeInfo();

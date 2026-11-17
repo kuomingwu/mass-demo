@@ -6,6 +6,20 @@
 //                         POST /agent/v1/heartbeat         (telemetry + actual slice state -> desired slice state)
 //   Admin API             GET  /admin/v1/overview          (nodes, slices, tenants, today's usage)
 //                         POST /admin/v1/profile           ({ profile }) switch the partition profile
+//                         POST /admin/v1/tenants           open a customer account -> one-time activation code
+//                         POST /admin/v1/sites             add a site (data centre) -> one-time enrollment token for its machines
+//                         POST /admin/v1/slices/clear      release every on-demand slice (start a demo from an empty card)
+//                         GET  /admin/v1/topology          sites -> nodes -> GPU -> slices -> tenants, plus recent events
+//                         GET  /topology                   the admin topology page (topology.html)
+//   On-demand slicing     GET  /portal/v1/sites            sites the customer can deploy to
+//                         GET  /portal/v1/deployments      the customer's enabled models
+//                         POST /portal/v1/deployments      ({ model, siteId }) enable a model: the control plane carves a slice
+//                         POST /portal/v1/deployments/remove ({ sliceId }) disable it; an unused slice is released
+//   Customer onboarding   POST /portal/v1/activate         (activation code -> first API key, shown once)
+//                         GET  /portal/v1/me               (account, balance, limits, keys, today's usage)
+//                         POST /portal/v1/keys             create another key
+//                         POST /portal/v1/keys/revoke      ({ keyId }) revoke a key
+//                         GET  /portal                     the customer activation page (portal.html)
 //
 // Everything persisted goes to the storage root on the data drive (default D:/maas-poc-storage):
 //   state/   control-plane state (tenants and balances, key hashes, node registry)
@@ -15,7 +29,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { loadConfig, storage, readJson, writeJson, makeLogger, sha256, randomToken, today } from './lib.mjs';
+import { loadConfig, storage, readJson, writeJson, makeLogger, sha256, randomToken, today, HERE } from './lib.mjs';
 
 const cfg = loadConfig();
 const dirs = storage(cfg);
@@ -40,6 +54,15 @@ if (!state || !plain) {
   writeJson(STATE_FILE, state);
   log('info', 'initialised control-plane state', { stateFile: STATE_FILE });
 }
+state.activations ??= {}; // sha256(activation code) -> { tenantId, expiresAt, usedAt }
+state.sites ??= {}; // siteId -> { id, name, region, location, bootHash, bootExpiresAt }
+state.slices ??= []; // on-demand slices: { id, nodeId, siteId, model, vramMiB, numCtx, maxInflight, sharing, tenants: [] }
+state.events ??= []; // recent control-plane events, newest last (shown on the topology page)
+const ON_DEMAND = 'on-demand';
+function event(type, fields = {}) {
+  state.events.push({ ts: new Date().toISOString(), type, ...fields });
+  if (state.events.length > 60) state.events.splice(0, state.events.length - 60);
+}
 let dirty = false;
 const persist = () => {
   dirty = true;
@@ -60,8 +83,15 @@ const inflight = new Map(); // `${nodeId}/${sliceId}` -> number
 const publicModels = Object.entries(cfg.models).map(([runtimeModel, m]) => ({ runtimeModel, ...m }));
 const byPublicId = new Map(publicModels.map((m) => [m.publicId, m]));
 
-function desiredSlices() {
+/** Desired state for one node. In on-demand mode it is whatever customers have enabled on that node. */
+function desiredSlices(node) {
+  if (state.activeProfile === ON_DEMAND) return state.slices.filter((sl) => sl.nodeId === node?.id).map(({ nodeId, siteId, tenants, ...sl }) => sl);
   return cfg.profiles[state.activeProfile]?.slices ?? [];
+}
+/** May this tenant send traffic to this slice? Decided from control-plane state, never from what the agent echoes back. */
+function tenantMayUse(sl, tenantId) {
+  if (state.activeProfile === ON_DEMAND) return state.slices.some((d) => d.id === sl.id && d.tenants.includes(tenantId));
+  return sl.sharing !== 'dedicated' || sl.tenantId === tenantId;
 }
 
 function usedInWindow(tenantId) {
@@ -140,7 +170,7 @@ function pickSlice(tenantId, model) {
     if (!nodeFresh(node)) continue;
     for (const sl of node.slices ?? []) {
       if (sl.model !== model.runtimeModel || sl.state !== 'ready') continue;
-      if (sl.sharing === 'dedicated' && sl.tenantId !== tenantId) continue;
+      if (!tenantMayUse(sl, tenantId)) continue;
       const key = `${node.id}/${sl.id}`;
       candidates.push({ node, slice: sl, key, busy: inflight.get(key) ?? 0 });
     }
@@ -163,7 +193,12 @@ function authTenant(req, res) {
     fail(res, 401, 'INVALID_API_KEY', 'Missing or invalid API key.');
     return null;
   }
-  return { tenant: state.tenants[rec.tenantId], keyId: rec.keyId };
+  const tenant = state.tenants[rec.tenantId];
+  if (!tenant || (tenant.status ?? 'active') !== 'active') {
+    fail(res, 403, 'TENANT_NOT_ACTIVE', 'This account is not active.');
+    return null;
+  }
+  return { tenant, keyId: rec.keyId };
 }
 const tenantAllows = (tenant, publicId) => tenant.models === '*' || tenant.models.includes(publicId);
 
@@ -173,7 +208,7 @@ function listModels(req, res) {
   const data = publicModels
     .filter((m) => tenantAllows(auth.tenant, m.publicId))
     .map((m) => {
-      const ready = Object.values(state.nodes).some((n) => nodeFresh(n) && (n.slices ?? []).some((s) => s.model === m.runtimeModel && s.state === 'ready' && (s.sharing !== 'dedicated' || s.tenantId === auth.tenant.id)));
+      const ready = Object.values(state.nodes).some((n) => nodeFresh(n) && (n.slices ?? []).some((s) => s.model === m.runtimeModel && s.state === 'ready' && tenantMayUse(s, auth.tenant.id)));
       return { id: m.publicId, object: 'model', owned_by: 'maas-poc', hosting: 'self-hosted', origin: m.origin, license: m.license, pricing: { input_per_1m_usd: m.priceInPerM, output_per_1m_usd: m.priceOutPerM }, status: ready ? 'ready' : 'not-loaded' };
     });
   send(res, 200, { object: 'list', data });
@@ -361,15 +396,268 @@ async function chatCompletions(req, res) {
   }
 }
 
+// ---------- customer onboarding ----------
+function issueKey(tenantId, name) {
+  const key = randomToken('sk-maas');
+  const keyId = `key-${crypto.randomBytes(4).toString('hex')}`;
+  // Only the hash is stored. The plaintext leaves the server exactly once, in this response.
+  state.keys[sha256(key)] = { keyId, tenantId, name: String(name ?? 'default').slice(0, 40), prefix: key.slice(0, 12), createdAt: new Date().toISOString() };
+  persist();
+  return { keyId, key };
+}
+const keysOf = (tenantId) =>
+  Object.values(state.keys)
+    .filter((k) => k.tenantId === tenantId)
+    .map(({ keyId, name, prefix, createdAt }) => ({ keyId, name: name ?? 'default', prefix: prefix ?? 'sk-maas_', createdAt }));
+
+/** Admin opens a customer account. The customer cannot call anything until they redeem the activation code. */
+async function createTenant(req, res) {
+  const body = await readBody(req);
+  const name = String(body.name ?? '').trim().slice(0, 64);
+  if (!name) return fail(res, 400, 'VALIDATION', '"name" is required.');
+  const models = body.models === '*' || body.models == null ? '*' : body.models;
+  if (models !== '*' && !(Array.isArray(models) && models.length > 0 && models.every((m) => byPublicId.has(m)))) return fail(res, 400, 'VALIDATION', `"models" must be "*" or a list of: ${[...byPublicId.keys()].join(', ')}`);
+  const d = cfg.onboarding ?? {};
+  const num = (v, fallback) => (Number.isFinite(v) && v >= 0 ? v : fallback);
+  const id = `t-${crypto.randomBytes(3).toString('hex')}`;
+  state.tenants[id] = {
+    id,
+    name,
+    type: body.type === 'public-sector' ? 'public-sector' : 'enterprise',
+    status: 'pending',
+    balanceUsd: num(body.creditUsd, d.defaultCreditUsd ?? 1),
+    spentUsd: 0,
+    tpmLimit: num(body.tpmLimit, d.defaultTpmLimit ?? 20000),
+    rpmLimit: num(body.rpmLimit, d.defaultRpmLimit ?? 60),
+    models,
+    zeroRetention: true,
+    createdAt: new Date().toISOString(),
+  };
+  const code = randomToken('act', 12);
+  const expiresAt = new Date(Date.now() + (d.activationTtlHours ?? 24) * 3600_000).toISOString();
+  state.activations[sha256(code)] = { tenantId: id, expiresAt, usedAt: null };
+  persist();
+  event('tenant-created', { tenantId: id, tenant: name });
+  log('info', 'tenant created, waiting for activation', { tenantId: id, name });
+  send(res, 201, { tenantId: id, status: 'pending', activationCode: code, expiresAt, activationUrl: `http://${cfg.gateway.host}:${cfg.gateway.port}/portal` });
+}
+
+/** Customer redeems the one-time code: the account becomes active and the first API key is returned once. */
+async function activate(req, res) {
+  const body = await readBody(req);
+  const rec = state.activations[sha256(String(body.activationCode ?? '').trim())];
+  if (!rec) return fail(res, 401, 'INVALID_ACTIVATION_CODE', 'Activation code rejected.');
+  if (rec.usedAt) return fail(res, 409, 'ACTIVATION_CODE_USED', 'This activation code has already been used.');
+  if (new Date(rec.expiresAt).getTime() < Date.now()) return fail(res, 410, 'ACTIVATION_CODE_EXPIRED', 'This activation code has expired. Ask for a new one.');
+  const tenant = state.tenants[rec.tenantId];
+  rec.usedAt = new Date().toISOString();
+  tenant.status = 'active';
+  tenant.activatedAt = rec.usedAt;
+  const { keyId, key } = issueKey(tenant.id, 'default');
+  event('tenant-activated', { tenantId: tenant.id, tenant: tenant.name });
+  log('info', 'tenant activated', { tenantId: tenant.id, keyId });
+  send(res, 201, { tenantId: tenant.id, name: tenant.name, status: 'active', apiKey: key, keyId, baseUrl: `http://${cfg.gateway.host}:${cfg.gateway.port}/v1`, note: 'Store this key now. It is not shown again.' });
+}
+
+function me(req, res) {
+  const auth = authTenant(req, res);
+  if (!auth) return;
+  const t = auth.tenant;
+  const mine = readLedger().filter((e) => e.tenantId === t.id);
+  const ok = mine.filter((e) => e.status === 200);
+  send(res, 200, {
+    tenantId: t.id,
+    name: t.name,
+    type: t.type,
+    status: t.status ?? 'active',
+    balanceUsd: t.balanceUsd,
+    spentUsd: t.spentUsd ?? 0,
+    limits: { tpm: t.tpmLimit, rpm: t.rpmLimit, tpmUsed: usedInWindow(t.id).tokens },
+    models: t.models,
+    retention: t.zeroRetention ? 'none' : 'standard',
+    currentKeyId: auth.keyId,
+    keys: keysOf(t.id),
+    today: { requests: mine.length, ok: ok.length, promptTokens: ok.reduce((a, e) => a + e.promptTokens, 0), completionTokens: ok.reduce((a, e) => a + e.completionTokens, 0), costUsd: mine.reduce((a, e) => a + e.costUsd, 0) },
+  });
+}
+async function createKey(req, res) {
+  const auth = authTenant(req, res);
+  if (!auth) return;
+  const body = await readBody(req);
+  if (keysOf(auth.tenant.id).length >= 10) return fail(res, 409, 'KEY_LIMIT', 'At most 10 keys per account in this POC.');
+  const { keyId, key } = issueKey(auth.tenant.id, body.name);
+  send(res, 201, { keyId, apiKey: key, note: 'Store this key now. It is not shown again.' });
+}
+async function revokeKey(req, res) {
+  const auth = authTenant(req, res);
+  if (!auth) return;
+  const body = await readBody(req);
+  const hash = Object.keys(state.keys).find((h) => state.keys[h].keyId === body.keyId && state.keys[h].tenantId === auth.tenant.id);
+  if (!hash) return fail(res, 404, 'NOT_FOUND', 'No such key in this account.'); // another tenant's key looks exactly like a missing one
+  delete state.keys[hash];
+  persist();
+  log('info', 'key revoked', { tenantId: auth.tenant.id, keyId: body.keyId });
+  send(res, 200, { keyId: body.keyId, revoked: true });
+}
+function portalPage(res) {
+  const html = fs.readFileSync(path.join(HERE, 'portal.html'));
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': html.length, 'cache-control': 'no-store' });
+  res.end(html);
+}
+
+// ---------- sites and on-demand slicing ----------
+const onlineNodes = (siteId) => Object.values(state.nodes).filter((n) => nodeFresh(n) && (siteId == null || n.siteId === siteId));
+const allocatedMiB = (nodeId) => state.slices.filter((sl) => sl.nodeId === nodeId).reduce((a, sl) => a + sl.vramMiB, 0);
+const freeMiB = (node) => Math.max(0, (node.gpu?.sliceBudgetMiB ?? 0) - allocatedMiB(node.id));
+const actualSlice = (d) => (state.nodes[d.nodeId]?.slices ?? []).find((x) => x.id === d.id);
+
+async function upsertSite(req, res) {
+  const body = await readBody(req);
+  const name = String(body.name ?? '').trim().slice(0, 64);
+  if (!name) return fail(res, 400, 'VALIDATION', '"name" is required.');
+  const id = String(body.id ?? name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) || `site-${crypto.randomBytes(3).toString('hex')}`;
+  const token = randomToken('maas_boot');
+  const existed = !!state.sites[id];
+  const bootExpiresAt = new Date(Date.now() + (cfg.onboarding?.enrollTokenTtlHours ?? 24) * 3600_000).toISOString();
+  state.sites[id] = { ...(state.sites[id] ?? { createdAt: new Date().toISOString() }), id, name, region: String(body.region ?? '').slice(0, 32), location: String(body.location ?? '').slice(0, 80), bootHash: sha256(token), bootExpiresAt };
+  if (!existed) event('site-added', { siteId: id, name });
+  persist();
+  log('info', existed ? 'site enrollment token reissued' : 'site added', { siteId: id });
+  send(res, existed ? 200 : 201, { siteId: id, name, region: state.sites[id].region, location: state.sites[id].location, enrollmentToken: token, expiresAt: bootExpiresAt, note: 'One-time token. Run the agent on the GPU machine with MAAS_BOOTSTRAP_TOKEN set to it.' });
+}
+
+function portalSites(req, res) {
+  const auth = authTenant(req, res);
+  if (!auth) return;
+  send(res, 200, {
+    mode: state.activeProfile,
+    data: Object.values(state.sites).map((x) => {
+      const nodes = onlineNodes(x.id);
+      return { id: x.id, name: x.name, region: x.region, location: x.location, onlineNodes: nodes.length, freeMiB: nodes.reduce((a, n) => a + freeMiB(n), 0), largestFreeMiB: Math.max(0, ...nodes.map(freeMiB)) };
+    }),
+  });
+}
+const deploymentView = (d) => {
+  const a = actualSlice(d);
+  return { sliceId: d.id, model: cfg.models[d.model].publicId, siteId: d.siteId, siteName: state.sites[d.siteId]?.name ?? null, nodeId: d.nodeId, vramMiB: d.vramMiB, measuredMiB: a?.measuredMiB ?? null, state: a?.state ?? 'pending', detail: a?.detail ?? null, sharedWith: d.tenants.length - 1 };
+};
+function listDeployments(req, res) {
+  const auth = authTenant(req, res);
+  if (!auth) return;
+  send(res, 200, { data: state.slices.filter((d) => d.tenants.includes(auth.tenant.id)).map(deploymentView) });
+}
+/** Customer enables a model at a site. Reuse the slice already serving it there, or carve a new one out of free VRAM. */
+async function createDeployment(req, res) {
+  const auth = authTenant(req, res);
+  if (!auth) return;
+  const body = await readBody(req);
+  const tenant = auth.tenant;
+  if (state.activeProfile !== ON_DEMAND) return fail(res, 409, 'NOT_ON_DEMAND', 'The platform is running a fixed partition profile. Switch to "on-demand" first.');
+  const model = byPublicId.get(body.model);
+  if (!model) return fail(res, 400, 'VALIDATION', `Unknown model "${body.model}".`);
+  if (!tenantAllows(tenant, model.publicId)) return fail(res, 403, 'MODEL_NOT_ALLOWED', `Model "${model.publicId}" is not in this account's catalog.`);
+  const site = state.sites[body.siteId];
+  if (!site) return fail(res, 400, 'VALIDATION', 'Unknown "siteId". See GET /portal/v1/sites.');
+  const nodes = onlineNodes(site.id);
+  if (nodes.length === 0) return fail(res, 409, 'SITE_HAS_NO_NODES', `Site "${site.name}" has no GPU machine online.`);
+
+  const existing = state.slices.find((d) => d.siteId === site.id && d.model === model.runtimeModel && nodes.some((n) => n.id === d.nodeId));
+  if (existing) {
+    if (!existing.tenants.includes(tenant.id)) {
+      existing.tenants.push(tenant.id);
+      event('slice-shared', { sliceId: existing.id, model: model.publicId, siteId: site.id, tenantId: tenant.id, tenant: tenant.name });
+      persist();
+    }
+    return send(res, 200, { ...deploymentView(existing), carved: false });
+  }
+  const need = model.sliceMiB ?? 4096;
+  const node = nodes.filter((n) => freeMiB(n) >= need).sort((a, b) => freeMiB(b) - freeMiB(a))[0];
+  if (!node) return fail(res, 409, 'NO_CAPACITY', `"${model.publicId}" needs ${need} MiB; the largest free block at "${site.name}" is ${Math.max(0, ...nodes.map(freeMiB))} MiB.`);
+  const d = { id: `sl-${crypto.randomBytes(3).toString('hex')}`, nodeId: node.id, siteId: site.id, model: model.runtimeModel, vramMiB: need, numCtx: model.numCtx ?? 4096, maxInflight: 2, sharing: 'shared', tenants: [tenant.id], createdAt: new Date().toISOString() };
+  state.slices.push(d);
+  state.generation += 1;
+  event('slice-carved', { sliceId: d.id, model: model.publicId, siteId: site.id, nodeId: node.id, vramMiB: need, tenantId: tenant.id, tenant: tenant.name });
+  persist();
+  log('info', 'slice carved', { sliceId: d.id, nodeId: node.id, model: model.publicId, vramMiB: need, tenantId: tenant.id });
+  send(res, 201, { ...deploymentView(d), carved: true });
+}
+async function removeDeployment(req, res) {
+  const auth = authTenant(req, res);
+  if (!auth) return;
+  const body = await readBody(req);
+  const d = state.slices.find((x) => x.id === body.sliceId && x.tenants.includes(auth.tenant.id));
+  if (!d) return fail(res, 404, 'NOT_FOUND', 'No such deployment in this account.');
+  d.tenants = d.tenants.filter((t) => t !== auth.tenant.id);
+  const released = d.tenants.length === 0;
+  if (released) {
+    state.slices = state.slices.filter((x) => x !== d);
+    state.generation += 1;
+    event('slice-released', { sliceId: d.id, model: cfg.models[d.model].publicId, siteId: d.siteId, vramMiB: d.vramMiB });
+  } else {
+    event('slice-left', { sliceId: d.id, model: cfg.models[d.model].publicId, siteId: d.siteId, tenantId: auth.tenant.id, tenant: auth.tenant.name });
+  }
+  persist();
+  send(res, 200, { sliceId: d.id, released });
+}
+
+function clearSlices(res) {
+  const n = state.slices.length;
+  state.slices = [];
+  state.generation += 1;
+  if (n) event("slices-cleared", { count: n });
+  persist();
+  send(res, 200, { released: n, generation: state.generation });
+}
+
+function topology(res) {
+  const nodeView = (n) => {
+    const slices = (n.slices ?? []).map((a) => {
+      const d = state.slices.find((x) => x.id === a.id);
+      return { id: a.id, model: a.publicId, state: a.state, detail: a.detail ?? null, budgetMiB: a.budgetMiB, measuredMiB: a.measuredMiB ?? null, sharing: a.sharing, inflight: inflight.get(`${n.id}/${a.id}`) ?? 0, tenants: (d?.tenants ?? (a.tenantId ? [a.tenantId] : [])).map((t) => ({ id: t, name: state.tenants[t]?.name ?? t })) };
+    });
+    // slices the control plane has assigned but the agent has not reported yet
+    for (const d of state.slices.filter((x) => x.nodeId === n.id && !slices.some((x2) => x2.id === x.id))) slices.push({ id: d.id, model: cfg.models[d.model].publicId, state: 'pending', detail: null, budgetMiB: d.vramMiB, measuredMiB: null, sharing: d.sharing, inflight: 0, tenants: d.tenants.map((t) => ({ id: t, name: state.tenants[t]?.name ?? t })) });
+    const budget = n.gpu?.sliceBudgetMiB ?? 0;
+    return { id: n.id, name: n.name, online: nodeFresh(n), lastHeartbeat: n.lastHeartbeat, appliedGeneration: n.appliedGeneration ?? null, gpu: n.gpu ? { name: n.gpu.name, totalMiB: n.gpu.memoryTotalMiB, usedMiB: n.gpu.memoryUsedMiB, reserveMiB: n.gpu.reserveMiB, sliceBudgetMiB: budget, utilizationPct: n.gpu.utilizationPct, temperatureC: n.gpu.temperatureC } : null, strategy: n.partitioning?.strategy ?? null, isolation: n.partitioning?.isolation ?? null, runtime: n.runtime ? `${n.runtime.kind} ${n.runtime.version ?? ''}`.trim() : null, slices, freeMiB: Math.max(0, budget - slices.filter((x) => x.state !== 'rejected-no-capacity').reduce((a, x) => a + x.budgetMiB, 0)) };
+  };
+  const nodes = Object.values(state.nodes);
+  send(res, 200, {
+    now: new Date().toISOString(),
+    mode: state.activeProfile,
+    generation: state.generation,
+    catalog: publicModels.map((m) => ({ id: m.publicId, sliceMiB: m.sliceMiB ?? null })),
+    sites: Object.values(state.sites).map((x) => ({ id: x.id, name: x.name, region: x.region, location: x.location, enrollmentTokenPending: !!x.bootHash && new Date(x.bootExpiresAt).getTime() > Date.now(), nodes: nodes.filter((n) => n.siteId === x.id).map(nodeView) })),
+    unassigned: nodes.filter((n) => !n.siteId && nodeFresh(n)).map(nodeView),
+    tenants: Object.values(state.tenants).filter((t) => t.status).map((t) => ({ id: t.id, name: t.name, status: t.status, balanceUsd: t.balanceUsd, spentUsd: t.spentUsd ?? 0, models: t.models, deployments: state.slices.filter((d) => d.tenants.includes(t.id)).length })),
+    events: state.events.slice(-25).reverse(),
+  });
+}
+function staticPage(res, file) {
+  const html = fs.readFileSync(path.join(HERE, file));
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': html.length, 'cache-control': 'no-store' });
+  res.end(html);
+}
+
 // ---------- agent API ----------
 async function enroll(req, res) {
   const body = await readBody(req);
-  if (!safeEqualHash(bearer(req), state.bootstrapHash)) return fail(res, 401, 'INVALID_BOOTSTRAP_TOKEN', 'Bootstrap token rejected.');
-  const nodeId = `node-${crypto.randomBytes(4).toString('hex')}`;
+  const token = bearer(req);
+  const site = Object.values(state.sites).find((x) => x.bootHash && safeEqualHash(token, x.bootHash));
+  if (site && new Date(site.bootExpiresAt).getTime() < Date.now()) return fail(res, 401, 'BOOTSTRAP_TOKEN_EXPIRED', 'This enrollment token has expired. Issue a new one for the site.');
+  if (!site && !safeEqualHash(token, state.bootstrapHash)) return fail(res, 401, 'INVALID_BOOTSTRAP_TOKEN', 'Bootstrap token rejected.');
+  // The site comes from the token the admin issued, not from anything the machine claims about itself.
+  const siteId = site?.id ?? null;
+  const gpuUuid = typeof body.gpuUuid === 'string' ? body.gpuUuid.slice(0, 80) : null;
+  const known = gpuUuid ? Object.values(state.nodes).find((n) => n.gpuUuid === gpuUuid) : null;
+  const nodeId = known?.id ?? `node-${crypto.randomBytes(4).toString('hex')}`;
   const nodeToken = randomToken('maas_node');
-  state.nodes[nodeId] = { id: nodeId, name: String(body.name ?? nodeId).slice(0, 64), site: String(body.site ?? '').slice(0, 64), tokenHash: sha256(nodeToken), enrolledAt: new Date().toISOString(), lastHeartbeat: null, slices: [] };
+  if (known && known.siteId !== siteId) state.slices = state.slices.filter((sl) => sl.nodeId !== nodeId); // moved to another site: its old slices no longer apply
+  state.nodes[nodeId] = { ...(known ?? {}), id: nodeId, name: String(body.name ?? nodeId).slice(0, 64), site: site?.name ?? String(body.site ?? '').slice(0, 64), siteId, gpuUuid, tokenHash: sha256(nodeToken), enrolledAt: new Date().toISOString(), lastHeartbeat: null, slices: [] };
+  if (site) site.bootHash = null; // one-time: the next machine needs a new token
+  state.generation += 1;
+  event('node-enrolled', { nodeId, name: state.nodes[nodeId].name, siteId });
   persist();
-  log('info', 'node enrolled', { nodeId, name: state.nodes[nodeId].name });
+  log('info', 'node enrolled', { nodeId, name: state.nodes[nodeId].name, siteId });
   send(res, 201, { nodeId, nodeToken, heartbeatMs: cfg.node.heartbeatMs });
 }
 
@@ -385,7 +673,7 @@ async function heartbeat(req, res) {
   node.slices = Array.isArray(body.slices) ? body.slices : [];
   node.appliedGeneration = body.appliedGeneration;
   persist();
-  send(res, 200, { generation: state.generation, profile: state.activeProfile, slices: desiredSlices() });
+  send(res, 200, { generation: state.generation, profile: state.activeProfile, slices: desiredSlices(node) });
 }
 
 // ---------- admin API ----------
@@ -411,7 +699,7 @@ function overview(res) {
     generation: state.generation,
     profiles: Object.fromEntries(Object.entries(cfg.profiles).map(([k, v]) => [k, { description: v.description, slices: v.slices }])),
     nodes: Object.values(state.nodes).map(({ tokenHash, ...n }) => ({ ...n, online: nodeFresh(n), slices: (n.slices ?? []).map((s) => ({ ...s, inflight: inflight.get(`${n.id}/${s.id}`) ?? 0 })) })),
-    tenants: Object.values(state.tenants).map((t) => ({ id: t.id, name: t.name, type: t.type, balanceUsd: t.balanceUsd, spentUsd: t.spentUsd ?? 0, tpmLimit: t.tpmLimit, tpmUsed: usedInWindow(t.id).tokens, models: t.models })),
+    tenants: Object.values(state.tenants).map((t) => ({ id: t.id, name: t.name, type: t.type, status: t.status ?? 'active', keys: keysOf(t.id).length, balanceUsd: t.balanceUsd, spentUsd: t.spentUsd ?? 0, tpmLimit: t.tpmLimit, tpmUsed: usedInWindow(t.id).tokens, models: t.models })),
     today: { requests: ledger.length, ok: ok.length, promptTokens: ok.reduce((a, e) => a + e.promptTokens, 0), completionTokens: ok.reduce((a, e) => a + e.completionTokens, 0), revenueUsd: ledger.reduce((a, e) => a + e.costUsd, 0), byTenant },
   });
 }
@@ -420,6 +708,7 @@ async function switchProfile(req, res) {
   if (!cfg.profiles[body.profile]) return fail(res, 400, 'VALIDATION', `Unknown profile. Available: ${Object.keys(cfg.profiles).join(', ')}`);
   state.activeProfile = body.profile;
   state.generation += 1;
+  event('mode-changed', { mode: body.profile });
   persist();
   log('info', 'partition profile switched', { profile: body.profile, generation: state.generation });
   send(res, 200, { profile: state.activeProfile, generation: state.generation });
@@ -436,12 +725,26 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true });
     if (req.method === 'GET' && url.pathname === '/v1/models') return listModels(req, res);
     if (req.method === 'POST' && url.pathname === '/v1/chat/completions') return await chatCompletions(req, res);
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/portal')) return portalPage(res);
+    if (req.method === 'GET' && url.pathname === '/topology') return staticPage(res, 'topology.html');
+    if (req.method === 'GET' && url.pathname === '/portal/v1/sites') return portalSites(req, res);
+    if (req.method === 'GET' && url.pathname === '/portal/v1/deployments') return listDeployments(req, res);
+    if (req.method === 'POST' && url.pathname === '/portal/v1/deployments') return await createDeployment(req, res);
+    if (req.method === 'POST' && url.pathname === '/portal/v1/deployments/remove') return await removeDeployment(req, res);
+    if (req.method === 'POST' && url.pathname === '/portal/v1/activate') return await activate(req, res);
+    if (req.method === 'GET' && url.pathname === '/portal/v1/me') return me(req, res);
+    if (req.method === 'POST' && url.pathname === '/portal/v1/keys') return await createKey(req, res);
+    if (req.method === 'POST' && url.pathname === '/portal/v1/keys/revoke') return await revokeKey(req, res);
     if (req.method === 'POST' && url.pathname === '/agent/v1/enroll') return await enroll(req, res);
     if (req.method === 'POST' && url.pathname === '/agent/v1/heartbeat') return await heartbeat(req, res);
     if (url.pathname.startsWith('/admin/')) {
       if (!isAdmin(req)) return fail(res, 401, 'INVALID_ADMIN_KEY', 'Admin key required.');
       if (req.method === 'GET' && url.pathname === '/admin/v1/overview') return overview(res);
       if (req.method === 'POST' && url.pathname === '/admin/v1/profile') return await switchProfile(req, res);
+      if (req.method === 'POST' && url.pathname === '/admin/v1/tenants') return await createTenant(req, res);
+      if (req.method === 'POST' && url.pathname === '/admin/v1/sites') return await upsertSite(req, res);
+      if (req.method === 'GET' && url.pathname === '/admin/v1/topology') return topology(res);
+      if (req.method === 'POST' && url.pathname === '/admin/v1/slices/clear') return clearSlices(res);
     }
     fail(res, 404, 'NOT_FOUND', 'No such endpoint.');
   } catch (e) {
