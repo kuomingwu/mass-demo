@@ -207,6 +207,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/keys', labelKey: 'nav.keys', icon: <KeyRegular />, action: 'key.read' },
       { to: '/usage', labelKey: 'nav.usage', icon: <DataUsageRegular />, action: 'usage.read' },
       { to: '/plan', labelKey: 'nav.plan', icon: <WalletCreditCardRegular />, action: 'billing.read' },
+      { to: '/live-gpu', labelKey: 'nav.liveGpu', icon: <DeveloperBoardRegular /> },
     ],
   },
   {

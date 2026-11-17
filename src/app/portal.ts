@@ -25,7 +25,7 @@ export function setPortal(p: Portal) {
 }
 
 /** Customer-facing pages that do not exist in the admin portal. */
-const CUSTOMER_ONLY = ['/hub', '/plan'];
+const CUSTOMER_ONLY = ['/hub', '/plan', '/live-gpu'];
 /** Platform-operations pages that do not exist in the customer portal. */
 const ADMIN_ONLY = ['/trials', '/tenants', '/models', '/deployments', '/clusters', '/local-gpu', '/providers', '/routing', '/pricing'];
 

@@ -7,6 +7,7 @@ import { PermissionDenied } from '../../components/States';
 import { CodeBlock } from '../../components/CodeBlock';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useSession } from '../../app/SessionContext';
+import { TopologyTab } from './TopologyTab';
 import { tf, useLocale, useT } from '../../i18n';
 import { formatUsd } from '../../theme/chartPalette';
 import { AGENT_DUTIES, AGENT_NEVER, AGENT_PROTOCOL, FLOW_STEPS, NODE_STACK, PLANNER_GPUS, POC_GATEWAY_DEFAULT, POC_RUN_COMMANDS, POC_SNAPSHOT, POC_STORAGE_LAYOUT, STRATEGIES, modelsThatFit, type PlannerLayout, type PocBenchmark } from '../../data/localGpu';
@@ -62,8 +63,8 @@ const useStyles = makeStyles({
   liveRow: { display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) minmax(200px, 1fr) auto', columnGap: tokens.spacingHorizontalM, rowGap: tokens.spacingVerticalS, alignItems: 'end', marginBottom: tokens.spacingVerticalS, '@media (max-width: 760px)': { gridTemplateColumns: '1fr' } },
 });
 
-type TabKey = 'flow' | 'partition' | 'install' | 'poc';
-const TABS: TabKey[] = ['flow', 'partition', 'install', 'poc'];
+type TabKey = 'flow' | 'partition' | 'install' | 'topology' | 'poc';
+const TABS: TabKey[] = ['flow', 'partition', 'install', 'topology', 'poc'];
 type Styles = ReturnType<typeof useStyles>;
 
 /**
@@ -101,6 +102,7 @@ export function LocalGpuPage() {
           {tab === 'flow' && <FlowTab s={s} />}
           {tab === 'partition' && <PartitionTab s={s} />}
           {tab === 'install' && <InstallTab s={s} />}
+          {tab === 'topology' && <TopologyTab />}
           {tab === 'poc' && <PocTab s={s} />}
         </>
       )}

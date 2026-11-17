@@ -21,6 +21,7 @@ import { DeploymentsPage } from '../pages/deployments/DeploymentsPage';
 import { ForbiddenPage, NotFoundPage } from '../pages/ErrorPages';
 import { HubPage } from '../pages/hub/HubPage';
 import { TrialRequestPage } from '../pages/hub/TrialRequestPage';
+import { LiveGpuPage } from '../pages/hub/LiveGpuPage';
 import { PlanPage } from '../pages/PlanPage';
 import { TrialsPage } from '../pages/TrialsPage';
 import { PricingPage } from '../pages/PricingPage';
@@ -52,6 +53,7 @@ export function AppRoutes() {
         {customer && <Route path="/hub" element={<HubPage />} />}
         {customer && <Route path="/hub/trial" element={<TrialRequestPage />} />}
         {customer && <Route path="/plan" element={<PlanPage />} />}
+        {customer && <Route path="/live-gpu" element={<LiveGpuPage />} />}
         {/* 兩個入口共用（資料依登入者的範圍過濾） */}
         <Route path="/playground" element={<PlaygroundPage />} />
         <Route path="/keys" element={<KeysPage />} />

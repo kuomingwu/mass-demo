@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:customer": "vite --mode customer --port 5173",
     "dev:admin": "vite --mode admin --port 5174",
+    "live": "node scripts/live.mjs",
     "build": "tsc -p tsconfig.json --noEmit && vite build --mode customer && vite build --mode admin",
     "build:customer": "vite build --mode customer",
     "build:admin": "vite build --mode admin",

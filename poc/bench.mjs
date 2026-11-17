@@ -175,7 +175,7 @@ async function main() {
   check('A01', 'Node enrolled, online, heartbeat fresh', node.online, `${node.name} / ${node.gpu?.name} / agent ${node.agentVersion}`);
   check('A02', 'Every slice in the active profile is ready and inside its VRAM budget', node.slices.length > 0 && node.slices.every((s) => s.state === 'ready'), node.slices.map((s) => `${s.id}=${s.state} ${s.measuredMiB ?? s.vramMiB}/${s.budgetMiB} MiB`).join(', '));
   const m1 = await api('GET', '/v1/models', star);
-  check('A03', 'GET /v1/models lists the catalog with prices and readiness', m1.status === 200 && m1.json.data.length === 3 && m1.json.data.every((m) => m.pricing), m1.json?.data?.map((m) => `${m.id}:${m.status}`).join(', '));
+  check('A03', 'GET /v1/models lists the catalog with prices and readiness', m1.status === 200 && m1.json.data.length === Object.keys(cfg.models).length && m1.json.data.every((m) => m.pricing), m1.json?.data?.map((m) => `${m.id}:${m.status}`).join(', '));
   const m2 = await api('GET', '/v1/models', gov);
   check('A04', 'Public-sector tenant sees only its allowed catalog', m2.status === 200 && m2.json.data.length === 2 && !m2.json.data.some((m) => m.id === 'llama-3.2-3b'), m2.json?.data?.map((m) => m.id).join(', '));
   const noKey = await api('POST', '/v1/chat/completions', null, { model: 'gemma-3-4b', messages: [{ role: 'user', content: 'hi' }] });

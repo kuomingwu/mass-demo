@@ -3,6 +3,7 @@
 //   node slice.mjs list              show the partition profiles in poc.config.json
 //   node slice.mjs apply <profile>   apply a profile and show what the agent actually did on the GPU
 //   node slice.mjs status            show the current slices and GPU memory
+//   node slice.mjs url               print the admin topology link (with the current admin key) and the customer page link
 //   node slice.mjs stop              unload the models, stop the gateway and agent, free the GPU memory
 //
 // `apply` starts the gateway and the agent if they are not running, and leaves them running.
@@ -135,4 +136,9 @@ else if (cmd === 'status') {
   if (!(await up())) console.log('閘道沒有在執行。先執行：node slice.mjs apply <配置>');
   else await showStatus((await api('GET', '/admin/v1/overview')).json);
 } else if (cmd === 'stop') await stop();
-else console.log('用法：node slice.mjs list | apply <配置> | status | stop');
+else if (cmd === 'url') {
+  // Print the admin topology link with the current admin key (the key changes whenever the state is reset).
+  console.log(`${BASE}/topology#${adminKey()}`);
+  console.log(`${BASE}/portal`);
+}
+else console.log('用法：node slice.mjs list | apply <配置> | status | url | stop');

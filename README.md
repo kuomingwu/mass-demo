@@ -59,6 +59,7 @@ npm install
 npm run dev            # Combined console for development: every role in one site (http://localhost:5173/#/)
 npm run dev:customer   # Customer portal only  (http://localhost:5173/#/)
 npm run dev:admin      # Admin portal only     (http://localhost:5174/#/)
+npm run live           # Both portals + the local GPU proof of concept in one go (see "The two portals can drive the real GPU")
 npm run build          # Type-check, then build BOTH portals: dist-customer/ and dist-admin/
 npm run build:combined # Type-check + build the combined console to dist/
 npm run preview:customer   # Serve dist-customer/ on http://localhost:5183
@@ -89,6 +90,36 @@ The product ships as two sites built from the same source:
 ### Local GPU proof of concept (`poc/`)
 
 `poc/` holds a small, runnable proof of concept for bringing your own GPU machine onto the platform: a node agent, a control plane with an OpenAI-compatible gateway, and an acceptance and load test. It needs an NVIDIA GPU, Ollama and Node.js 20 or newer. See `poc/README.md` (Traditional Chinese). The numbers on the admin portal's "Local GPU onboarding → Validation results" tab come from `src/data/localGpuPoc.snapshot.json`, which `poc/export-snapshot.mjs` regenerates.
+
+#### The two portals can drive the real GPU
+
+Two pages talk to the proof-of-concept gateway instead of the in-browser mock server, so the demo site and the real GPU show the same thing:
+
+| Portal | Page | What it does against the real gateway |
+|---|---|---|
+| Admin | Local GPU onboarding → **Live topology** | Add a site (returns a one-time enrollment token), open a customer account (returns a one-time activation code), and watch sites → GPU machines → slices → customers update every 2 seconds |
+| Customer | **Self-hosted GPU (live)** | Redeem the activation code, receive an API key, choose a site and a model, call it, and see usage and balance |
+
+One command starts everything on the same machine (needs an NVIDIA GPU, Ollama with `gemma3:270m` pulled, Node.js 20+):
+
+```bash
+npm run live
+```
+
+It starts the gateway and the node agent, runs the 27 flow checks, starts the admin portal (port 5174) and the customer portal (port 5173), then opens both in the browser. The admin link carries the admin key and connects by itself; the customer link carries a fresh activation code. Press Activate in the customer portal, choose a site and a model, and the slice appears in the admin portal within seconds. Ctrl+C stops everything and frees the GPU memory. Add `-- --no-open` to print the links without opening the browser.
+
+To run the pieces separately instead:
+
+```bash
+cd poc && node quickstart.mjs     # terminal 1: gateway + agent; prints an activation code
+npm run dev:admin                 # terminal 2: http://localhost:5174/#/local-gpu?tab=topology
+npm run dev:customer              # terminal 3: http://localhost:5173/#/live-gpu
+node poc/slice.mjs url            # prints the admin key (the part after "#") to paste into the Live topology tab
+```
+
+- While not connected, the Live topology tab shows a sample taken from a measured run and labels it as a sample. The Self-hosted GPU page needs the gateway.
+- A hosted copy of the site (HTTPS) cannot reach `http://127.0.0.1`, so the live pages work only when the site is served locally over HTTP.
+- The admin key and the customer API key are kept in `sessionStorage` for the current tab only.
 
 On first launch a **platform tour** plays automatically (you can "Skip" at any time; once finished or skipped it is recorded under the `maas-demo-tour-v1` key in `localStorage` and won't pop up again). You can reopen it later from the "Help" button in the top right, or via "Settings → Onboarding → Replay".
 

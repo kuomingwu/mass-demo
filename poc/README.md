@@ -26,6 +26,17 @@ node quickstart.mjs --once   # 跑完就結束，並釋放 GPU 記憶體
 
 兩頁並排開著。在啟用頁選機房與模型按「啟用」，拓樸頁會在幾秒內多出一塊切片。按 Ctrl+C 結束。
 
+同樣的操作也可以在示範網站上做，畫面與網站其他頁面一致，支援三種語言：
+
+| 入口 | 頁面 | 啟動方式 |
+|---|---|---|
+| 管理後台 | 本地 GPU 上線 → 即時拓樸 | `npm run dev:admin`，開啟 `http://localhost:5174/#/local-gpu?tab=topology` |
+| 客戶入口 | 自有 GPU 實機 | `npm run dev:customer`，開啟 `http://localhost:5173/#/live-gpu` |
+
+管理金鑰用 `node slice.mjs url` 取得，貼井字號後面那一段。
+
+不想分開啟動的話，在上一層資料夾執行 `npm run live`。它會一次啟動驗證環境與兩個入口，並自動開啟瀏覽器：管理後台已帶入管理金鑰，客戶入口已帶入啟用碼。按 Ctrl+C 全部結束。
+
 報告寫在 `<儲存根目錄>/reports/quickstart-latest.md`。
 
 ### 完整流程
